@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
 import { CvPreview } from '@/components/cv/cv-preview'
@@ -6,7 +6,7 @@ import { JdPanel } from '@/components/jd/jd-panel'
 import { Button } from '@/components/ui/button'
 import { cv } from '@/data/cv'
 import { sampleJd } from '@/data/sample-jd'
-import { analyze, flattenCv } from '@/lib/analyze'
+import { flattenCv } from '@/lib/analyze'
 import { clearCv, readCv, saveCv } from '@/lib/cv-store'
 import type { CvPdf } from '@/lib/pdf'
 import { AlertCircle, LoaderCircle, Lock, Upload, X } from 'lucide-react'
@@ -44,7 +44,6 @@ export default function App() {
 
   // An uploaded CV replaces the sample as the side the matcher reads.
   const cvText = pdf ? pdf.text : sampleCvText
-  const analysis = useMemo(() => analyze(cvText, jd), [cvText, jd])
 
   useEffect(
     () => () => {
@@ -240,9 +239,12 @@ export default function App() {
         <section className="min-h-0 border-t border-border/70 bg-[#f8fafd] p-3.5 sm:p-4 lg:border-t-0 lg:border-l">
           <JdPanel
             value={jd}
-            analysis={analysis}
+            cvText={cvText}
             onChange={setJd}
-            onLoadSample={() => setJd(sampleJd)}
+            onLoadSample={() => {
+              setJd(sampleJd)
+              return sampleJd
+            }}
           />
         </section>
       </main>

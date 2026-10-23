@@ -91,20 +91,6 @@ export type MatchPiece = {
   mark: boolean
 }
 
-export type Gap = {
-  term: string
-  count: number
-}
-
-export type Analysis = {
-  pieces: MatchPiece[]
-  /** 0–100, or null when no requirement was found */
-  coverage: number | null
-  matched: number
-  total: number
-  gaps: Gap[]
-}
-
 function stripPunctuation(value: string) {
   return value
     .toLowerCase()
@@ -217,6 +203,27 @@ function buildCvVocabulary(cvText: string) {
   return vocab
 }
 
+/** The CV's canonical vocabulary, exposed for requirement matching. */
+export function cvVocabulary(cvText: string) {
+  return buildCvVocabulary(cvText)
+}
+
+/**
+ * Canonical content words for a requirement term. "Frontend experience" becomes
+ * ["frontend"]; "Node.js" becomes ["node"]. The classifier decides what matters,
+ * this only normalises it for lookup in the CV.
+ */
+export function termKeys(term: string): string[] {
+  const keys = new Set<string>()
+
+  for (const token of tokenize(term)) {
+    if (!token.content) continue
+    keys.add(canonical(token.raw))
+  }
+
+  return [...keys]
+}
+
 function collectSpans(
   text: string,
   tokens: Token[],
@@ -277,56 +284,6 @@ export function detectRequirements(text: string): DetectedRequirement[] {
     start: tokens[span.start].index,
     end: tokens[span.end - 1].end,
   }))
-}
-
-export function analyze(cvText: string, jdText: string): Analysis {
-  const vocab = buildCvVocabulary(cvText)
-  const tokens = tokenize(jdText)
-
-  const isCovered = (token: Token) =>
-    token.content && token.keys.some((key) => vocab.has(canonical(key)))
-
-  const spans = collectSpans(jdText, tokens, isCovered)
-
-  const pieces: MatchPiece[] = []
-  let cursor = 0
-
-  for (const span of spans) {
-    if (span.covered) continue
-    const start = tokens[span.start].index
-    const end = tokens[span.end - 1].end
-    if (start > cursor) {
-      pieces.push({ text: jdText.slice(cursor, start), mark: false })
-    }
-    pieces.push({ text: jdText.slice(start, end), mark: true })
-    cursor = end
-  }
-
-  if (cursor < jdText.length) {
-    pieces.push({ text: jdText.slice(cursor), mark: false })
-  }
-
-  const gapMap = new Map<string, Gap>()
-  for (const span of spans) {
-    if (span.covered) continue
-    const term = span.label.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9+#]+$/g, '')
-    if (!term) continue
-    const existing = gapMap.get(span.key)
-    if (existing) existing.count += 1
-    else gapMap.set(span.key, { term, count: 1 })
-  }
-
-  const matched = spans.filter((span) => span.covered).length
-  const total = spans.length
-
-  return {
-    pieces,
-    coverage: total === 0 ? null : Math.round((matched / total) * 100),
-    matched,
-    total,
-    // most repeated gaps first, then order of appearance (sort is stable)
-    gaps: [...gapMap.values()].sort((a, b) => b.count - a.count),
-  }
 }
 
 export function flattenCv(value: unknown): string {

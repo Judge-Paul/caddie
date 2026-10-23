@@ -1,21 +1,28 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type ReactNode,
+} from 'react'
 
 import { CoverageRing } from '@/components/coverage-ring'
 import { JdData, type ClassifyStatus } from '@/components/jd/jd-data'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import type { Analysis } from '@/lib/analyze'
 import { classifyJd } from '@/lib/classify'
+import { scoreRequirements } from '@/lib/match'
 import type { ClassificationResult } from '@shared/jd-classification'
 import { cn } from 'cn'
-import { ClipboardPaste, X } from 'lucide-react'
+import { AlertCircle, ClipboardPaste, LoaderCircle, X } from 'lucide-react'
 
 type JdPanelProps = {
   value: string
-  analysis: Analysis
+  cvText: string
   onChange: (value: string) => void
-  onLoadSample: () => void
+  onLoadSample: () => string
 }
 
 const MAX_GAP_CHIPS = 4
@@ -46,7 +53,7 @@ function ModeButton({
   )
 }
 
-export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProps) {
+export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps) {
   const [mode, setMode] = useState<'edit' | 'review' | 'data'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
@@ -60,6 +67,13 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
   const words = hasText ? value.trim().split(/\s+/).length : 0
   const showEmptyState = !hasText
   const canReview = hasText
+
+  // The score follows the classified posting, not a separate lexicon pass. The
+  // CV side recomputes for free when the reader uploads a different CV.
+  const score = useMemo(
+    () => (result ? scoreRequirements(cvText, value, result.data.requirements) : null),
+    [cvText, value, result],
+  )
 
   // Leaving the panel must not leave a request running.
   useEffect(
@@ -84,8 +98,8 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
     if (!next.trim()) setMode('edit')
   }
 
-  async function runClassification() {
-    const text = value.trim()
+  async function runClassification(input: string = value) {
+    const text = input.trim()
     if (text.length === 0) return
 
     requestRef.current?.abort()
@@ -125,6 +139,8 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
 
     handleChange(next)
     openReview()
+    // The score needs the classified posting, so a real paste starts the read.
+    if (next.trim().length >= 40) void runClassification(next)
   }
 
   function openReview() {
@@ -135,8 +151,9 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
 
   function handleLoadSample() {
     resetClassification()
-    onLoadSample()
+    const text = onLoadSample()
     openReview()
+    void runClassification(text)
   }
 
   function handleClear() {
@@ -169,52 +186,89 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
               : "Paste the posting and we'll mark what your CV doesn't cover."}
           </p>
         </div>
-        {analysis.coverage === null ? null : (
-          <CoverageRing value={analysis.coverage} />
-        )}
+        {score && score.coverage !== null ? <CoverageRing value={score.coverage} /> : null}
       </div>
 
-      {hasText && analysis.coverage !== null ? (
+      {hasText && status === 'loading' && mode !== 'data' ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex shrink-0 items-center gap-2 border-y border-border/70 bg-muted/30 px-5 py-2.5 text-[11.5px] text-muted-foreground"
+        >
+          <LoaderCircle className="size-3.5 animate-spin text-brand-600" strokeWidth={2} />
+          Reading the posting to score your CV…
+        </div>
+      ) : null}
+
+      {hasText && status === 'error' && mode !== 'data' ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-y border-border/70 bg-muted/30 px-5 py-2.5">
+          <span className="flex min-w-0 items-start gap-1.5 text-[11.5px] leading-[1.4] text-muted-foreground">
+            <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
+            <span className="min-w-0">{error}</span>
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 bg-card"
+            onClick={() => void runClassification()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
+
+      {hasText && status === 'idle' && mode !== 'data' ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-y border-border/70 bg-muted/30 px-5 py-2.5">
+          <span className="text-[11.5px] text-muted-foreground">
+            Read the posting to score it against your CV.
+          </span>
+          <Button size="sm" onClick={() => void runClassification()}>
+            Read with Gemma
+          </Button>
+        </div>
+      ) : null}
+
+      {hasText && score && score.coverage !== null ? (
         <div className="border-y border-border/70 bg-muted/30 px-5 py-3">
           <div className="flex items-baseline justify-between gap-3">
             <span className="text-[11.5px] font-medium text-ink">
-              {analysis.coverage}% covered
+              {score.coverage}% covered
             </span>
             <span className="text-[11px] tabular-nums text-muted-foreground">
-              {analysis.matched} of {analysis.total} requirements
+              {score.matched} of {score.total} must-haves
             </span>
           </div>
           <div
             className="mt-2 h-1.5 overflow-hidden rounded-full bg-brand-100"
             role="progressbar"
-            aria-valuenow={analysis.coverage}
+            aria-valuenow={score.coverage}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="Job description coverage"
+            aria-label="Job description coverage against your CV"
           >
             <div
               className="h-full rounded-full bg-brand-600 transition-[width] duration-500 ease-out"
-              style={{ width: `${analysis.coverage}%` }}
+              style={{ width: `${score.coverage}%` }}
             />
           </div>
 
-          {analysis.gaps.length > 0 ? (
+          {score.gaps.length > 0 ? (
             <div className="mt-3">
               <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Missing from your CV
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {analysis.gaps.slice(0, MAX_GAP_CHIPS).map((gap) => (
+                {score.gaps.slice(0, MAX_GAP_CHIPS).map((gap) => (
                   <span
-                    key={gap.term}
+                    key={gap.key}
                     className="rounded-md border border-mark-line/60 bg-mark/50 px-1.5 py-[1px] text-[10.5px] font-medium text-mark-foreground"
                   >
                     {gap.term}
                   </span>
                 ))}
-                {analysis.gaps.length > MAX_GAP_CHIPS ? (
+                {score.gaps.length > MAX_GAP_CHIPS ? (
                   <span className="rounded-md px-1.5 py-[1px] text-[10.5px] text-muted-foreground">
-                    +{analysis.gaps.length - MAX_GAP_CHIPS} more
+                    +{score.gaps.length - MAX_GAP_CHIPS} more
                   </span>
                 ) : null}
               </div>
@@ -223,9 +277,9 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
         </div>
       ) : null}
 
-      {hasText && analysis.total === 0 ? (
+      {hasText && status === 'ready' && score && score.total === 0 ? (
         <p className="shrink-0 border-y border-border/70 bg-muted/30 px-5 py-2.5 text-[11.5px] text-muted-foreground">
-          No requirements detected. Try pasting the full posting.
+          No must-have requirements were read from this posting.
         </p>
       ) : null}
 
@@ -296,8 +350,8 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
                   Paste the job description
                 </p>
                 <p className="mt-1 max-w-[36ch] text-[12px] leading-[1.5] text-muted-foreground">
-                  The posting, the requirements, all of it. Coverage updates the
-                  moment you paste.
+                  The posting, the requirements, all of it. Gemma reads it after
+                  you paste, then marks what your CV is missing.
                 </p>
                 <Button
                   variant="outline"
@@ -319,24 +373,26 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
             className="h-full overflow-y-auto px-5 py-4 outline-none"
           >
             <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-[#2a3446]">
-              {analysis.pieces.map((piece, index) =>
-                piece.mark ? (
-                  <mark
-                    key={index}
-                    className="rounded-[3px] bg-mark px-[2px] text-mark-foreground shadow-[inset_0_-1px_0_var(--mark-line)]"
-                  >
-                    {piece.text}
-                  </mark>
-                ) : (
-                  <span key={index}>{piece.text}</span>
-                ),
-              )}
+              {score
+                ? score.pieces.map((piece, index) =>
+                    piece.mark ? (
+                      <mark
+                        key={index}
+                        className="rounded-[3px] bg-mark px-[2px] text-mark-foreground shadow-[inset_0_-1px_0_var(--mark-line)]"
+                      >
+                        {piece.text}
+                      </mark>
+                    ) : (
+                      <span key={index}>{piece.text}</span>
+                    ),
+                  )
+                : value}
             </div>
           </div>
         )}
       </div>
 
-      {mode === 'review' && hasText ? (
+      {mode === 'review' && hasText && score ? (
         <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-muted/30 px-5 py-2.5">
           <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="size-2.5 rounded-[2px] bg-mark ring-1 ring-mark-line" />
