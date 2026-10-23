@@ -1,56 +1,49 @@
 # JD classification eval
 
-Generated 2026-10-23T18:51:17.058Z · 1 run(s) per posting.
+Generated 2026-10-23T21:37:30.707Z · 1 run(s) per posting.
 
 ## Scoreboard
 
 | model | model id | cases | fields | must recall | nice recall | mix-ups | anyOf F1 | invented terms | mean latency |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gemma | `@cf/google/gemma-4-26b-a4b-it` | 5/5 | 100% | 95% | 100% | 0 | 93% | 1 | 29986 ms |
-| jev | `—` | 0/1 | 0% | 0% | 0% | 0 | 0% | 0 | 0 ms |
-
-## Unavailable models
-
-- jev: This model needs Cloudflare credits on the account (or a BYOK key) before it can run.
+| gemma | `@cf/google/gemma-4-26b-a4b-it` | 5/5 | 95% | 93% | 100% | 0 | 93% | 3 | 36109 ms |
 
 ## Per posting
 
 ### frontend-saas · gemma
 
 - fields: family frontend, seniority senior, mode remote, domain saas
-- must recall 100%, nice recall 100%, anyOf F1 100%
-- 24 requirements · 55205 ms · 1 call(s)
+- must recall 89%, nice recall 100%, anyOf F1 100%
+- missing must: GraphQL
+- 18 requirements · 46002 ms · 1 call(s)
 
 ### mobile-alternatives · gemma
 
 - fields: family mobile, seniority mid, mode hybrid, domain fintech
 - must recall 100%, nice recall 100%, anyOf F1 67%
-- either-or groups not in the posting: Fintech or banking experience
-- 8 requirements · 13497 ms · 1 call(s)
+- either-or groups not in the posting: Fintech or banking
+- 10 requirements · 55769 ms · 1 call(s)
 
 ### backend-contract · gemma
 
 - fields: family backend, seniority senior, mode remote, domain fintech
 - must recall 100%, nice recall 100%, anyOf F1 100%
-- 15 requirements · 29358 ms · 1 call(s)
+- 15 requirements · 16722 ms · 1 call(s)
 
 ### design-health · gemma
 
-- fields: family design, seniority mid, mode hybrid, domain health
+- fields: family design, seniority mid, mode hybrid, domain saas
 - must recall 75%, nice recall 100%, anyOf F1 100%
 - missing must: design system
-- 12 requirements · 29853 ms · 1 call(s)
+- terms not in the posting: product interface design
+- 10 requirements · 37064 ms · 1 call(s)
 
 ### agency-freelance · gemma
 
 - fields: family frontend, seniority unspecified, mode remote, domain agency
 - must recall 100%, nice recall 100%, anyOf F1 100%
-- terms not in the posting: mobile responsiveness
-- 8 requirements · 22016 ms · 1 call(s)
-
-### frontend-saas · jev
-
-Failed: This model needs Cloudflare credits on the account (or a BYOK key) before it can run.
+- terms not in the posting: performance, responsive design
+- 8 requirements · 24988 ms · 1 call(s)
 
 ## How this is scored
 
