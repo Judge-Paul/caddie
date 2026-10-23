@@ -1,9 +1,12 @@
 import type { ClassificationResult } from '@shared/jd-classification'
 
 export class ClassifyError extends Error {
-  constructor(message: string) {
+  readonly code?: string
+
+  constructor(message: string, code?: string) {
     super(message)
     this.name = 'ClassifyError'
+    this.code = code
   }
 }
 
@@ -32,7 +35,7 @@ export async function classifyJd(
   }
 
   const payload = (await response.json().catch(() => null)) as
-    | (Partial<ClassificationResult> & { error?: string })
+    | (Partial<ClassificationResult> & { error?: string; code?: string })
     | null
 
   if (!response.ok) {
@@ -42,6 +45,7 @@ export async function classifyJd(
         (unreachable
           ? 'The classifier server is not running. Start it with npm run dev.'
           : `Classification failed (${response.status}).`),
+      payload?.code,
     )
   }
 

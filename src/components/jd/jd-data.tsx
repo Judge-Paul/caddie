@@ -33,7 +33,9 @@ type JdDataProps = {
   profile: ResearchResult | null
   researchStatus: ResearchStatus
   researchError: string
+  blocked: boolean
   onRun: () => void
+  onEdit: () => void
   onResearch: () => void
 }
 
@@ -273,18 +275,34 @@ function DataLoading() {
   )
 }
 
-function DataError({ message, onRun }: { message: string; onRun: () => void }) {
+function DataError({
+  message,
+  blocked,
+  onRun,
+  onEdit,
+}: {
+  message: string
+  blocked: boolean
+  onRun: () => void
+  onEdit: () => void
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <div className="flex size-11 items-center justify-center rounded-xl border border-border bg-muted/60 text-muted-foreground">
         <AlertCircle className="size-5" strokeWidth={1.75} />
       </div>
-      <p className="mt-3 text-[13px] font-medium text-ink">Could not read this posting</p>
+      <p className="mt-3 text-[13px] font-medium text-ink">
+        {blocked ? 'Not a job description' : 'Could not read this posting'}
+      </p>
       <p className="mt-1 max-w-[38ch] text-[12px] leading-[1.5] text-muted-foreground">
         {message}
       </p>
-      <Button variant="outline" className="mt-4 max-sm:h-11" onClick={onRun}>
-        Try again
+      <Button
+        variant="outline"
+        className="mt-4 max-sm:h-11"
+        onClick={blocked ? onEdit : onRun}
+      >
+        {blocked ? 'Edit posting' : 'Try again'}
       </Button>
     </div>
   )
@@ -512,11 +530,22 @@ export function JdData({
   profile,
   researchStatus,
   researchError,
+  blocked,
   onRun,
+  onEdit,
   onResearch,
 }: JdDataProps) {
   if (status === 'loading') return <DataLoading />
-  if (status === 'error') return <DataError message={error} onRun={onRun} />
+  if (status === 'error') {
+    return (
+      <DataError
+        message={error}
+        blocked={blocked}
+        onRun={onRun}
+        onEdit={onEdit}
+      />
+    )
+  }
   if (status === 'ready' && result) {
     return (
       <DataBody

@@ -157,3 +157,33 @@ export async function runJev(
     usage: result.usage,
   }
 }
+
+/** Clef uses the same System One questions as JEV, with a different request body. */
+export type ClefQuestion = JevQuestion
+export type ClefAnswer = JevAnswer
+export type ClefResult = {
+  answers: Record<string, ClefAnswer>
+  usage?: ChatUsage
+}
+
+type ClefResponse = {
+  answers?: Record<string, ClefAnswer>
+  usage?: ChatUsage
+}
+
+export async function runClef(
+  config: ServerConfig,
+  input: { state: string; questions: Record<string, ClefQuestion> },
+): Promise<ClefResult> {
+  const selector = config.clefModel.split('/').pop() ?? 'clef-flash'
+  const result = await postJson<ClefResponse>(
+    `${API_ROOT}/${config.accountId}/ai/run/${config.clefModel}`,
+    config,
+    { model: selector, state: input.state, questions: input.questions },
+  )
+
+  return {
+    answers: result.answers ?? {},
+    usage: result.usage,
+  }
+}

@@ -16,7 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { classifyJd } from '@/lib/classify'
+import { classifyJd, ClassifyError } from '@/lib/classify'
 import { scoreRequirements } from '@/lib/match'
 import { researchCompany } from '@/lib/research'
 import type {
@@ -24,6 +24,7 @@ import type {
   ResearchResult,
   Signal,
 } from '@shared/jd-classification'
+import { guardJd, NOT_JD_MESSAGE } from '@shared/jd-guard'
 import { cn } from 'cn'
 import { AlertCircle, ClipboardPaste, LoaderCircle, X } from 'lucide-react'
 
@@ -73,6 +74,7 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
   const [status, setStatus] = useState<ClassifyStatus>('idle')
   const [result, setResult] = useState<ClassificationResult | null>(null)
   const [error, setError] = useState('')
+  const [errorCode, setErrorCode] = useState<string | null>(null)
 
   const [profile, setProfile] = useState<ResearchResult | null>(null)
   const [researchStatus, setResearchStatus] = useState<ResearchStatus>('idle')
@@ -129,9 +131,17 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
     setResult(null)
     setStatus('idle')
     setError('')
+    setErrorCode(null)
     setProfile(null)
     setResearchStatus('idle')
     setResearchError('')
+  }
+
+  function blockClassification(message: string) {
+    resetClassification()
+    setStatus('error')
+    setErrorCode('not-a-jd')
+    setError(message)
   }
 
   function handleChange(next: string) {
@@ -143,6 +153,12 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
   async function runClassification(input: string = value) {
     const text = input.trim()
     if (text.length === 0) return
+
+    const guard = guardJd(text)
+    if (guard.verdict === 'not-jd') {
+      blockClassification(guard.message || NOT_JD_MESSAGE)
+      return
+    }
 
     requestRef.current?.abort()
     const controller = new AbortController()
@@ -157,6 +173,7 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
 
     setStatus('loading')
     setError('')
+    setErrorCode(null)
 
     try {
       const next = await classifyJd(text, controller.signal)
@@ -179,6 +196,7 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
           ? caught.message
           : 'The posting could not be classified. Try again.',
       )
+      setErrorCode(caught instanceof ClassifyError ? (caught.code ?? null) : null)
       setStatus('error')
     } finally {
       if (requestRef.current === controller) requestRef.current = null
@@ -250,6 +268,12 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
+  function handleEdit() {
+    resetClassification()
+    setMode('edit')
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(13,21,38,0.04),0_12px_32px_-24px_rgba(13,21,38,0.25)] lg:h-full">
       <div className="flex items-start justify-between gap-4 px-5 pt-4.5 pb-4">
@@ -297,9 +321,9 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
             variant="outline"
             size="sm"
             className="shrink-0 bg-card"
-            onClick={() => void runClassification()}
+            onClick={errorCode === 'not-a-jd' ? handleEdit : () => void runClassification()}
           >
-            Try again
+            {errorCode === 'not-a-jd' ? 'Edit posting' : 'Try again'}
           </Button>
         </div>
       ) : null}
@@ -445,6 +469,8 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               profile={profile}
               researchStatus={researchStatus}
               researchError={researchError}
+              blocked={errorCode === 'not-a-jd'}
+              onEdit={handleEdit}
               onRun={() => void runClassification()}
               onResearch={() => {
                 if (result?.data.company.name) {

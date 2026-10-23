@@ -6,6 +6,7 @@ import { CloudflareError } from './cloudflare'
 import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
 import { researchCompany } from './research'
+import { validateJd } from './validate'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
@@ -41,6 +42,12 @@ app.post('/api/classify', async (c) => {
   const model: ClassifyModel = requested === 'jev' ? 'jev' : 'gemma'
 
   try {
+    const validation = await validateJd(jd, readConfig())
+
+    if (!validation.allowed) {
+      return c.json({ error: validation.reason, code: 'not-a-jd' }, 422)
+    }
+
     return c.json(await classifyJd(jd, model))
   } catch (error) {
     if (error instanceof ConfigError) {
