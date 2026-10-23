@@ -8,7 +8,8 @@
 
 /* ---------------------------------------------------------------------------
    Caddie brand tokens
-   Blue is the product colour. Navy ink, cool paper, one red for gaps.
+   Blue is the product colour. Navy ink, cool paper. Red means a missing
+   must-have; amber means relevant experience worth showing.
    Change these values here — never hard-code hex values in components.
 --------------------------------------------------------------------------- */
 @theme inline {
@@ -32,6 +33,9 @@
   --color-mark: var(--mark);
   --color-mark-foreground: var(--mark-foreground);
   --color-mark-line: var(--mark-line);
+  --color-related: var(--related);
+  --color-related-foreground: var(--related-foreground);
+  --color-related-line: var(--related-line);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
 
@@ -94,6 +98,9 @@
   --mark: #ffe2e2;
   --mark-foreground: #a31818;
   --mark-line: #f5b5b5;
+  --related: #fff3d6;
+  --related-foreground: #7a4a00;
+  --related-line: #f0d08a;
   --success: #0f7b52;
   --success-foreground: #e8f7f0;
 

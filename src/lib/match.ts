@@ -1,19 +1,21 @@
-import type { Requirement } from '@shared/jd-classification'
-import { cvVocabulary, termKeys, type MatchPiece } from '@/lib/analyze'
+import type { Requirement, Signal } from '@shared/jd-classification'
+import {
+  cvIndex,
+  termSequence,
+  type CvIndex,
+  type MatchPiece,
+} from '@/lib/analyze'
 
 /**
- * Score the classified posting against the CV. The classifier decides what the
- * requirements are; this module only decides whether each one appears in the
- * CV, then finds the missing terms in the posting so the reader can mark them.
- *
- * Must-haves carry the score. Nice-to-haves stay in the Data tab: an optional
- * term is not a gap, and turning one red would overstate it.
+ * Score the classified posting against the CV. Must-haves carry the score and
+ * turn red when missing. Nice-to-haves and implied relevant experience stay out
+ * of the score and turn amber as "worth showing".
  */
 
 export type RequirementMatch = {
   requirement: Requirement
   covered: boolean
-  missingItems: string[]
+  missingTerms: string[]
 }
 
 export type MatchGap = {
@@ -27,31 +29,56 @@ export type Score = {
   matched: number
   total: number
   gaps: MatchGap[]
+  related: MatchGap[]
 }
 
-type Span = { start: number; end: number }
+type Span = { start: number; end: number; kind: 'gap' | 'related' }
+type Locatable = { label: string; evidence: string }
 
-function itemCovered(vocab: Set<string>, item: string) {
-  const keys = termKeys(item)
+function itemCovered(index: CvIndex, item: string) {
+  const words = termSequence(item)
   // Nothing content-bearing to look up: do not invent a gap.
-  if (keys.length === 0) return true
-  return keys.every((key) => vocab.has(key))
+  if (words.length === 0) return true
+
+  // A multi-word term must appear as a phrase. A bag-of-words lookup would let
+  // "English (native)" satisfy "React Native".
+  if (words.length === 1) return index.vocab.has(words[0])
+  return index.phrases.has(words.join(' '))
+}
+
+function termsOf(requirement: Requirement) {
+  return requirement.match.length > 0 ? requirement.match : requirement.items
+}
+
+function coverageOf(index: CvIndex, terms: string[], any: boolean) {
+  const missingTerms = terms.filter((term) => !itemCovered(index, term))
+  const covered = any ? missingTerms.length < terms.length : missingTerms.length === 0
+  return { covered, missingTerms: covered ? [] : missingTerms }
+}
+
+function matchRequirementList(
+  index: CvIndex,
+  requirements: Requirement[],
+): RequirementMatch[] {
+  return requirements.map((requirement) => {
+    const terms = termsOf(requirement)
+    // `match` holds evidence alternatives, so any one can satisfy it. Without
+    // match terms, fall back to the posting's own either-or grouping.
+    const any = requirement.match.length > 0 || requirement.combination === 'any'
+    const { covered, missingTerms } = coverageOf(index, terms, any)
+    return { requirement, covered, missingTerms }
+  })
 }
 
 export function matchRequirements(
   cvText: string,
   requirements: Requirement[],
 ): RequirementMatch[] {
-  const vocab = cvVocabulary(cvText)
+  return matchRequirementList(cvIndex(cvText), requirements)
+}
 
-  return requirements.map((requirement) => {
-    const items = requirement.items.length > 0 ? requirement.items : [requirement.label]
-    const missingItems = items.filter((item) => !itemCovered(vocab, item))
-    const any = requirement.combination === 'any' && items.length > 1
-    const covered = any ? missingItems.length < items.length : missingItems.length === 0
-
-    return { requirement, covered, missingItems: covered ? [] : missingItems }
-  })
+function signalCovered(index: CvIndex, signal: Signal) {
+  return signal.terms.some((term) => itemCovered(index, term))
 }
 
 function escapePattern(value: string) {
@@ -59,7 +86,7 @@ function escapePattern(value: string) {
 }
 
 /** Whole-term match, so "Go" does not light up inside "Google". */
-function findTerm(text: string, term: string): Span | null {
+function findTerm(text: string, term: string): { start: number; end: number } | null {
   const needle = term.trim()
   if (!needle) return null
 
@@ -74,7 +101,7 @@ function findTerm(text: string, term: string): Span | null {
 }
 
 /** The evidence quote can wrap across lines, so match on its words. */
-function findQuote(text: string, quote: string): Span | null {
+function findQuote(text: string, quote: string): { start: number; end: number } | null {
   const words = quote.trim().split(/\s+/).filter(Boolean).map(escapePattern)
   if (words.length === 0) return null
 
@@ -82,14 +109,43 @@ function findQuote(text: string, quote: string): Span | null {
   return match ? { start: match.index, end: match.index + match[0].length } : null
 }
 
+function locateTermGroup(text: string, terms: string[], item: Locatable) {
+  const spans: { start: number; end: number }[] = []
+  let found = false
+
+  for (const term of terms) {
+    const hit = findTerm(text, term)
+    if (hit) {
+      spans.push(hit)
+      found = true
+    }
+  }
+
+  if (!found) {
+    const label = findTerm(text, item.label)
+    if (label) spans.push(label)
+    else if (item.evidence) {
+      const quote = findQuote(text, item.evidence)
+      if (quote) spans.push(quote)
+    }
+  }
+
+  return spans
+}
+
+/** Sort by position, merge overlaps, and let red win over amber. */
 function mergeSpans(spans: Span[]) {
   const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end)
   const merged: Span[] = []
 
   for (const span of sorted) {
     const last = merged[merged.length - 1]
-    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end)
-    else merged.push({ ...span })
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end)
+      if (span.kind === 'gap') last.kind = 'gap'
+    } else {
+      merged.push({ ...span })
+    }
   }
 
   return merged
@@ -101,57 +157,87 @@ function buildPieces(text: string, spans: Span[]): MatchPiece[] {
 
   for (const span of spans) {
     if (span.start > cursor) {
-      pieces.push({ text: text.slice(cursor, span.start), mark: false })
+      pieces.push({ text: text.slice(cursor, span.start), mark: null })
     }
-    pieces.push({ text: text.slice(span.start, span.end), mark: true })
+    pieces.push({ text: text.slice(span.start, span.end), mark: span.kind })
     cursor = span.end
   }
 
-  if (cursor < text.length) pieces.push({ text: text.slice(cursor), mark: false })
-  return pieces.length > 0 ? pieces : [{ text, mark: false }]
+  if (cursor < text.length) pieces.push({ text: text.slice(cursor), mark: null })
+  return pieces.length > 0 ? pieces : [{ text, mark: null }]
 }
 
 export function scoreRequirements(
   cvText: string,
   jdText: string,
   requirements: Requirement[],
+  signals: Signal[] = [],
 ): Score {
+  const index = cvIndex(cvText)
+
   const musts = requirements.filter((item) => item.importance === 'must')
   const scored = musts.length > 0 ? musts : requirements
-  const matches = matchRequirements(cvText, scored)
+  const nices = musts.length > 0 ? requirements.filter((item) => item.importance === 'nice') : []
+
+  const matches = matchRequirementList(index, scored)
   const uncovered = matches.filter((match) => !match.covered)
+  const uncoveredNice = nices
+    .map((requirement) => ({
+      requirement,
+      ...coverageOf(
+        index,
+        termsOf(requirement),
+        requirement.match.length > 0 || requirement.combination === 'any',
+      ),
+    }))
+    .filter((entry) => !entry.covered)
+  const uncoveredSignals = signals.filter((signal) => !signalCovered(index, signal))
 
   const spans: Span[] = []
   const gaps: MatchGap[] = []
-  const seen = new Set<string>()
+  const related: MatchGap[] = []
+  const gapKeys = new Set<string>()
+  const relatedKeys = new Set<string>()
 
   for (const match of uncovered) {
-    const requirement = match.requirement
-    let found = false
-
-    for (const item of match.missingItems) {
-      const hit = findTerm(jdText, item)
-      if (hit) {
-        spans.push(hit)
-        found = true
-      }
+    for (const span of locateTermGroup(jdText, match.missingTerms, match.requirement)) {
+      spans.push({ ...span, kind: 'gap' })
     }
 
-    if (!found) {
-      const label = findTerm(jdText, requirement.label)
-      if (label) {
-        spans.push(label)
-      } else if (requirement.evidence) {
-        const quote = findQuote(jdText, requirement.evidence)
-        if (quote) spans.push(quote)
-      }
-    }
-
-    const term = requirement.label || match.missingItems.join(' or ')
+    const term = match.requirement.label || match.missingTerms.join(' or ')
     const key = term.toLowerCase()
-    if (term && !seen.has(key)) {
-      seen.add(key)
+    if (term && !gapKeys.has(key)) {
+      gapKeys.add(key)
       gaps.push({ term, key })
+    }
+  }
+
+  for (const entry of uncoveredNice) {
+    for (const span of locateTermGroup(
+      jdText,
+      entry.missingTerms,
+      entry.requirement,
+    )) {
+      spans.push({ ...span, kind: 'related' })
+    }
+
+    const term = entry.requirement.label
+    const key = term.toLowerCase()
+    if (term && !gapKeys.has(key) && !relatedKeys.has(key)) {
+      relatedKeys.add(key)
+      related.push({ term, key })
+    }
+  }
+
+  for (const signal of uncoveredSignals) {
+    for (const span of locateTermGroup(jdText, signal.terms, signal)) {
+      spans.push({ ...span, kind: 'related' })
+    }
+
+    const key = signal.label.toLowerCase()
+    if (!gapKeys.has(key) && !relatedKeys.has(key)) {
+      relatedKeys.add(key)
+      related.push({ term: signal.label, key })
     }
   }
 
@@ -164,5 +250,6 @@ export function scoreRequirements(
     matched,
     total,
     gaps,
+    related,
   }
 }

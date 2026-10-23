@@ -1,4 +1,4 @@
-import { SKILL_PHRASES, SKILL_WORDS } from '@/lib/skills'
+import { IMPLIED_CV_TERMS, SKILL_PHRASES, SKILL_WORDS } from '@/lib/skills'
 
 /**
  * Deterministic JD ↔ CV coverage.
@@ -88,7 +88,8 @@ type Span = {
 
 export type MatchPiece = {
   text: string
-  mark: boolean
+  /** `gap` is a missing must-have, `related` is worth showing. */
+  mark: 'gap' | 'related' | null
 }
 
 function stripPunctuation(value: string) {
@@ -192,36 +193,77 @@ function matchedPhraseLength(tokens: Token[], start: number) {
   return 0
 }
 
-function buildCvVocabulary(cvText: string) {
-  const vocab = new Set<string>()
-  for (const token of tokenize(cvText)) {
-    if (!token.content) continue
-    for (const key of token.keys) {
-      if (key.length > 1 && !STOPWORDS.has(key)) vocab.add(canonical(key))
-    }
-  }
-  return vocab
-}
-
-/** The CV's canonical vocabulary, exposed for requirement matching. */
-export function cvVocabulary(cvText: string) {
-  return buildCvVocabulary(cvText)
+export type CvIndex = {
+  vocab: Set<string>
+  /** Canonical word sequences of 2–4 words, for terms like "React Native". */
+  phrases: Set<string>
 }
 
 /**
- * Canonical content words for a requirement term. "Frontend experience" becomes
- * ["frontend"]; "Node.js" becomes ["node"]. The classifier decides what matters,
- * this only normalises it for lookup in the CV.
+ * The CV side of matching: a bag of canonical words plus contiguous word
+ * sequences. Sequences stop "English (native)" from satisfying "React Native".
  */
-export function termKeys(term: string): string[] {
-  const keys = new Set<string>()
+export function cvIndex(cvText: string): CvIndex {
+  const vocab = new Set<string>()
+  const words: string[] = []
 
-  for (const token of tokenize(term)) {
+  for (const token of tokenize(cvText)) {
     if (!token.content) continue
-    keys.add(canonical(token.raw))
+
+    for (const key of token.keys) {
+      if (key.length > 1 && !STOPWORDS.has(key)) vocab.add(canonical(key))
+    }
+
+    for (const part of token.raw.split(/[-–—]+/)) {
+      const key = canonical(part)
+      if (key) words.push(key)
+    }
   }
 
-  return [...keys]
+  const phrases = new Set<string>()
+  for (let index = 0; index < words.length; index += 1) {
+    for (let length = 2; length <= 4; length += 1) {
+      const window = words.slice(index, index + length)
+      if (window.length < length) break
+      phrases.add(window.join(' '))
+    }
+  }
+
+  // A CV that names a mobile framework has mobile app experience, even when the
+  // literal words "mobile" and "app" never appear.
+  const haystack = cvText.toLowerCase()
+  const compact = haystack.replace(/[^a-z0-9]+/g, '')
+
+  for (const entry of IMPLIED_CV_TERMS) {
+    const needle = entry.match.toLowerCase()
+    const needleCompact = needle.replace(/[^a-z0-9]+/g, '')
+    if (!haystack.includes(needle) && !compact.includes(needleCompact)) continue
+
+    for (const term of entry.implies) {
+      for (const key of wordKeys(term)) {
+        if (key.length > 1 && !STOPWORDS.has(key)) vocab.add(canonical(key))
+      }
+    }
+
+    if (entry.implies.length > 1) {
+      phrases.add(entry.implies.map((term) => canonical(term)).join(' '))
+    }
+  }
+
+  return { vocab, phrases }
+}
+
+/**
+ * Canonical words for a requirement term. Multi-word terms are matched as a
+ * contiguous phrase, so "react native" never matches "English (native)".
+ */
+export function termSequence(term: string): string[] {
+  return term
+    .trim()
+    .toLowerCase()
+    .split(/[\s\-–—]+/)
+    .map((word) => canonical(word))
+    .filter(Boolean)
 }
 
 function collectSpans(

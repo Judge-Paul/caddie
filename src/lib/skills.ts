@@ -390,3 +390,17 @@ export const SKILL_WORDS = new Set(
 )
 
 export const SKILL_PHRASES = PHRASES.map((phrase) => phrase.toLowerCase())
+
+/**
+ * Terms a CV implies by naming a tool, even when the words never appear. These
+ * are added only on the CV side, so "React Native" evidences mobile app work.
+ */
+export const IMPLIED_CV_TERMS: { match: string; implies: string[] }[] = [
+  { match: 'react native', implies: ['mobile', 'app'] },
+  { match: 'flutter', implies: ['mobile', 'app'] },
+  { match: 'expo', implies: ['mobile', 'app'] },
+  { match: 'swift', implies: ['ios', 'mobile'] },
+  { match: 'swiftui', implies: ['ios', 'mobile'] },
+  { match: 'kotlin', implies: ['android', 'mobile'] },
+  { match: 'jetpack compose', implies: ['android', 'mobile'] },
+]
