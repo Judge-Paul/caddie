@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Secrets: Cloudflare account id and API token live here, server-side only
+.env
+.env.*
+!.env.example
+
+# Scratch captures and sample payloads
+.tmp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

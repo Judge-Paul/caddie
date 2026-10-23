@@ -217,13 +217,11 @@ function buildCvVocabulary(cvText: string) {
   return vocab
 }
 
-export function analyze(cvText: string, jdText: string): Analysis {
-  const vocab = buildCvVocabulary(cvText)
-  const tokens = tokenize(jdText)
-
-  const isCovered = (token: Token) =>
-    token.content && token.keys.some((key) => vocab.has(canonical(key)))
-
+function collectSpans(
+  text: string,
+  tokens: Token[],
+  isCovered: (token: Token) => boolean,
+): Span[] {
   const spans: Span[] = []
 
   for (let index = 0; index < tokens.length; ) {
@@ -234,7 +232,7 @@ export function analyze(cvText: string, jdText: string): Analysis {
       spans.push({
         start: index,
         end: index + phraseLength,
-        label: jdText.slice(window[0].index, window[window.length - 1].end),
+        label: text.slice(window[0].index, window[window.length - 1].end),
         key: window.map((token) => canonical(token.raw)).join(' '),
         covered: window.every((token) => !token.content || isCovered(token)),
       })
@@ -254,6 +252,41 @@ export function analyze(cvText: string, jdText: string): Analysis {
     }
     index += 1
   }
+
+  return spans
+}
+
+export type DetectedRequirement = {
+  label: string
+  key: string
+  start: number
+  end: number
+}
+
+/**
+ * Requirement spans on their own, with no CV to compare against. The classifier
+ * uses these as candidates: vocabulary decisions stay in `skills.ts`, the model
+ * only judges whether each one is required or optional.
+ */
+export function detectRequirements(text: string): DetectedRequirement[] {
+  const tokens = tokenize(text)
+
+  return collectSpans(text, tokens, () => false).map((span) => ({
+    label: span.label,
+    key: span.key,
+    start: tokens[span.start].index,
+    end: tokens[span.end - 1].end,
+  }))
+}
+
+export function analyze(cvText: string, jdText: string): Analysis {
+  const vocab = buildCvVocabulary(cvText)
+  const tokens = tokenize(jdText)
+
+  const isCovered = (token: Token) =>
+    token.content && token.keys.some((key) => vocab.has(canonical(key)))
+
+  const spans = collectSpans(jdText, tokens, isCovered)
 
   const pieces: MatchPiece[] = []
   let cursor = 0
