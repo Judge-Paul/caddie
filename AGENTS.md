@@ -14,14 +14,24 @@ behave, so the product stays coherent no matter which agent works on it next.
   `npx shadcn@latest add <name>`; they land in `src/components/ui/`
 - `lucide-react` icons, Geist + Newsreader variable fonts via Fontsource
 - `pdfjs-dist` (legacy build) for uploaded CVs — canvas artwork plus a text layer
-- Path alias `@/*` → `src/*`. Note the shadcn convention here: components import
-  `cn` from the `cn` package, not from `@/lib/utils`.
+- Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
+- `shared/jd-classification.ts` is the classification contract shared by the
+  server, the client and the eval. Do not fork the shape in a component.
+- Path aliases `@/*` → `src/*` and `@shared/*` → `shared/*`. Note the shadcn
+  convention here: components import `cn` from the `cn` package, not from
+  `@/lib/utils`.
 
 ```bash
-npm run dev      # http://localhost:5173
+npm run dev      # Vite + classifier server; http://localhost:5173
 npm run build    # tsc -b && vite build
 npm run lint     # oxlint
+npm run api      # classifier only, http://localhost:8787
+npm run eval     # classifier scoreboard against eval/corpus.ts
 ```
+
+The classifier needs Cloudflare credentials. Copy `.env.example` to `.env.local`
+and fill in `CF_ACCOUNT_ID` and `CF_API_KEY`; never prefix them with `VITE_`.
+Matching works without them, the Data tab does not.
 
 ## Brand
 
@@ -94,6 +104,8 @@ entrance animations on load, no bouncing.
   crop or letterbox a page. pdf.js's text layer sits over each canvas so text
   can be selected and copied; keep it, and keep the toolbar arrows working at
   every width (sticky at the bottom of the pane, hidden for a single page).
+- The last upload is restored from IndexedDB on load (`src/lib/cv-store.ts`).
+  It is local persistence only — no account, no server copy.
 - The CV is read-only for now. Do not add editing affordances to the paper.
 
 ## How matching works
@@ -111,8 +123,34 @@ LLM. It:
 
 Prose that is not in the lexicon is never highlighted — that is what keeps the
 red readable. **Add vocabulary to `src/lib/skills.ts`, not conditionals to the
-matcher.** Keep results explainable and instant; no network round trip for
-analysis.
+matcher.** Keep matching explainable and instant; no network round trip for
+coverage.
+
+## Reading a posting as data
+
+The **Data** tab turns the posting into the object in
+`shared/jd-classification.ts`: role, company, work arrangement, compensation,
+requirements (must/nice, either-or groups, years), responsibilities, benefits,
+keywords and a one-sentence summary. It is separate from matching — coverage
+still comes from the deterministic client matcher.
+
+- The browser posts the JD to `/api/classify` (`src/lib/classify.ts`). The Bun
+  server (`server/classify/`) builds the prompt and calls Cloudflare Workers AI.
+- **Gemma is the default model.** JEV is implemented (`server/classify/jev.ts`)
+  as a decision-model alternative for the eval, but it is billed as a
+  third-party model and needs credits on the account. Do not expose a model
+  picker unless both models actually run.
+- Every answer goes through `normaliseClassification` before it reaches the UI.
+  Models are inconsistent; the normaliser is the contract. Fix data problems
+  there or in the prompt, not with component conditionals.
+- Classification is slow (tens of seconds) and costs credits, so it runs only
+  when the reader asks for it from the Data tab. Show the loading state, keep
+  the request abortable, and say where the text is sent. Coverage keeps its
+  "runs in your browser" promise; classification does not.
+- `npm run eval` scores model changes against `eval/corpus.ts` and rewrites
+  `eval/report.md`. Curate labels there, not in the runner.
+- If a new field is worth showing, add it to the shared type, the normaliser and
+  the prompt together. Never invent a field in the renderer.
 
 ## UI quality bar
 
@@ -144,8 +182,10 @@ CV measurement, and look at 1440px and 390px widths.
 
 Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
 viewing and selectable text, JD paste/review with red coverage marks, coverage
-ring/bar, gap chips.
+ring/bar, gap chips, and on-demand JD classification into structured data (Data
+tab, Gemma via the Bun server) with an eval harness.
 
-Not built yet: editing a CV, saving or revisiting uploads, a job library, PDF
-export, per-line/section analysis, any backend. Don't imply these exist in copy
-until they do.
+Not built yet: editing a CV, saving classifications, a job library, PDF export,
+per-line/section analysis, accounts, or a database. The uploaded CV alone is
+restored from IndexedDB on reload; it still never leaves the browser. Don't
+imply anything else persists. Don't imply these exist in copy until they do.
