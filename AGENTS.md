@@ -110,29 +110,36 @@ entrance animations on load, no bouncing.
 
 ## How matching works
 
-`src/lib/analyze.ts` is deterministic and runs on the client — no API calls, no
-LLM. It:
+The score is built from the classified posting, not from a separate pass over
+the raw text.
 
-1. tokenises the JD and builds canonical keys (lowercase, light stemming,
-   a synonym map for tech spelling variants)
-2. detects requirement spans using `src/lib/skills.ts`: lexicon words, lexicon
-   phrases, and tech-shaped tokens (internal capitals like `GraphQL`, or digits
-   like `D3`)
-3. marks a span covered when its content words appear anywhere in the CV
-4. returns rendering pieces, `coverage`, and the sorted `gaps`
+`src/lib/match.ts` runs on the client and:
 
-Prose that is not in the lexicon is never highlighted — that is what keeps the
-red readable. **Add vocabulary to `src/lib/skills.ts`, not conditionals to the
-matcher.** Keep matching explainable and instant; no network round trip for
-coverage.
+1. takes the **must-have** requirements from the classification (nice-to-haves
+   stay in the Data tab; an optional term is not a gap)
+2. canonicalises each requirement term with the tokenizer in
+   `src/lib/analyze.ts` and looks for its content words in the CV vocabulary
+3. treats an either-or group as covered when any alternative appears
+4. finds every uncovered term in the posting — the term itself first, then the
+   requirement label, then its evidence quote — and returns rendering pieces
+5. returns `coverage`, `matched`, `total` and the `gaps`
+
+Only those spans are marked red. Prose that is not a classified requirement is
+never highlighted, and nice-to-haves are never red. The score recomputes
+instantly when the CV changes; the classification is unchanged.
+
+`detectRequirements` in `src/lib/analyze.ts` remains the candidate finder for
+JEV, which cannot generate text. **Add vocabulary to `src/lib/skills.ts`, not
+conditionals to the matcher.** Keep matching explainable and client-side; the
+only network step is classification.
 
 ## Reading a posting as data
 
 The **Data** tab turns the posting into the object in
 `shared/jd-classification.ts`: role, company, work arrangement, compensation,
 requirements (must/nice, either-or groups, years), responsibilities, benefits,
-keywords and a one-sentence summary. It is separate from matching — coverage
-still comes from the deterministic client matcher.
+keywords and a one-sentence summary. The same classification supplies the
+must-have set that `src/lib/match.ts` scores against the CV.
 
 - The browser posts the JD to `/api/classify` (`src/lib/classify.ts`). The Bun
   server (`server/classify/`) builds the prompt and calls Cloudflare Workers AI.
@@ -143,10 +150,11 @@ still comes from the deterministic client matcher.
 - Every answer goes through `normaliseClassification` before it reaches the UI.
   Models are inconsistent; the normaliser is the contract. Fix data problems
   there or in the prompt, not with component conditionals.
-- Classification is slow (tens of seconds) and costs credits, so it runs only
-  when the reader asks for it from the Data tab. Show the loading state, keep
-  the request abortable, and say where the text is sent. Coverage keeps its
-  "runs in your browser" promise; classification does not.
+- Classification is slow (tens of seconds) and costs credits. It starts on
+  paste or sample load because the score depends on it, and stays available
+  from the Data tab for hand-typed text. Always show the loading state, keep
+  the request abortable, and say where the text is sent. Coverage itself still
+  runs in the browser; classification does not.
 - `npm run eval` scores model changes against `eval/corpus.ts` and rewrites
   `eval/report.md`. Curate labels there, not in the runner.
 - If a new field is worth showing, add it to the shared type, the normaliser and
@@ -181,9 +189,9 @@ CV measurement, and look at 1440px and 390px widths.
 ## Status
 
 Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
-viewing and selectable text, JD paste/review with red coverage marks, coverage
-ring/bar, gap chips, and on-demand JD classification into structured data (Data
-tab, Gemma via the Bun server) with an eval harness.
+viewing and selectable text, JD paste/review with classification-backed
+coverage, red gap marks, coverage ring/bar, gap chips, and JD classification
+into structured data (Data tab, Gemma via the Bun server) with an eval harness.
 
 Not built yet: editing a CV, saving classifications, a job library, PDF export,
 per-line/section analysis, accounts, or a database. The uploaded CV alone is

@@ -35,14 +35,16 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   copyable, and the last upload is restored from your browser on reload. Until
   you upload, a sample CV is shown, authored at 794×1123px and scaled so its
   layout is identical at every viewport.
-- **Job description panel** — paste, review, and edit modes. Coverage and gaps
-  update as soon as text arrives.
-- **Matching** — a deterministic, client-side matcher over a curated skills
-  lexicon (`src/lib/skills.ts`). It reads the text of the CV on screen: an
-  uploaded PDF's extracted text, or the sample. No network calls, nothing
-  leaves the page.
-- **Data tab** — on demand, Gemma reads the posting into the structured object
-  in `shared/jd-classification.ts`: role, company, work arrangement, pay,
+- **Job description panel** — paste, review, and data modes. Gemma reads a
+  pasted posting in the background; once it is done, the score and red gaps
+  appear in Review.
+- **Matching** — `src/lib/match.ts` scores the classified must-haves against
+  the text of the CV on screen: an uploaded PDF's extracted text, or the
+  sample. A requirement is covered when its content words appear in the CV;
+  missing must-haves are the only things marked red. Matching is instant and
+  runs in the browser, so replacing the CV updates the score immediately.
+- **Data tab** — Gemma reads the posting into the structured object in
+  `shared/jd-classification.ts`: role, company, work arrangement, pay,
   requirements, responsibilities, benefits and keywords. That step sends the
   posting to Cloudflare Workers AI; coverage never does.
 
