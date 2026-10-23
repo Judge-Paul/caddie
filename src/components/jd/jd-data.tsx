@@ -248,8 +248,8 @@ function DataEmpty({ onRun }: { onRun: () => void }) {
         Read with Gemma
       </Button>
       <p className="mt-2 max-w-[34ch] text-[10.5px] leading-[1.4] text-muted-foreground">
-        The posting goes to Cloudflare; the company name goes to Browserbase for
-        research. Usually takes 20–40 seconds.
+        The posting goes to Cloudflare; a short company summary goes to
+        Browserbase for research. Usually takes 20–40 seconds.
       </p>
     </div>
   )

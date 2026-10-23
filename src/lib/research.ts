@@ -9,12 +9,14 @@ export class ResearchError extends Error {
 
 /**
  * Read public pages about the company through the server. The CV is never part
- * of this request; it only sends the company name, role and a posting excerpt.
+ * of this request; it sends the company, role, role fields and summary so the
+ * search can tell the right "Cardboard" from the wrong one.
  */
 export async function researchCompany(
   company: string,
   role: string,
-  jd: string,
+  fields: string[],
+  summary: string,
   signal?: AbortSignal,
 ): Promise<ResearchResult> {
   let response: Response
@@ -23,7 +25,7 @@ export async function researchCompany(
     response = await fetch('/api/research', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company, role, jd }),
+      body: JSON.stringify({ company, role, fields, summary }),
       signal,
     })
   } catch (error) {

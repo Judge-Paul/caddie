@@ -586,13 +586,19 @@ export function normaliseCompanyProfile(
   }
 
   const links: CompanyLink[] = []
+  const linkKeys = new Set<string>()
   if (Array.isArray(value.links)) {
     for (const entry of value.links) {
       const title = isRecord(entry) ? text(entry.title, 80) : ''
       const url = isRecord(entry) ? normaliseUrl(entry.url) : null
       if (!url) continue
-      if (links.some((link) => link.url === url)) continue
-      links.push({ title: title || new URL(url).hostname, url })
+
+      const parsed = new URL(url)
+      const key = `${parsed.hostname.replace(/^www\./, '')}${parsed.pathname}${parsed.search}`
+      if (linkKeys.has(key)) continue
+      linkKeys.add(key)
+
+      links.push({ title: title || parsed.hostname, url })
       if (links.length >= 5) break
     }
   }

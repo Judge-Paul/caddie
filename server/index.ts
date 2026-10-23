@@ -60,12 +60,20 @@ app.post('/api/research', async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
     company?: unknown
     role?: unknown
-    jd?: unknown
+    fields?: unknown
+    summary?: unknown
   } | null
 
   const company = typeof body?.company === 'string' ? body.company.trim() : ''
   const role = typeof body?.role === 'string' ? body.role.trim() : ''
-  const jd = typeof body?.jd === 'string' ? body.jd.trim() : ''
+  const fields = Array.isArray(body?.fields)
+    ? body.fields
+        .filter((field): field is string => typeof field === 'string')
+        .map((field) => field.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+    : []
+  const summary = typeof body?.summary === 'string' ? body.summary.trim() : ''
 
   if (company.length < 2 || company.length > 120) {
     return c.json({ error: 'A company name is needed for research.' }, 400)
@@ -73,7 +81,10 @@ app.post('/api/research', async (c) => {
 
   try {
     return c.json(
-      await researchCompany({ company, role: role.slice(0, 120), jd: jd.slice(0, MAX_JD_CHARS) }, readConfig()),
+      await researchCompany(
+        { company, role: role.slice(0, 120), fields, summary: summary.slice(0, 300) },
+        readConfig(),
+      ),
     )
   } catch (error) {
     if (error instanceof ConfigError) {

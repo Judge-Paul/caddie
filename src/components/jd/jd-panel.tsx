@@ -165,7 +165,12 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
       setStatus('ready')
 
       if (next.data.company.name) {
-        void runResearch(next.data.company.name, next.data.role.title, text)
+        void runResearch(
+          next.data.company.name,
+          next.data.role.title,
+          next.data.role.fields,
+          next.data.summary,
+        )
       }
     } catch (caught) {
       if (controller.signal.aborted) return
@@ -180,7 +185,12 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
     }
   }
 
-  async function runResearch(company: string, role: string, jdText: string = value) {
+  async function runResearch(
+    company: string,
+    role: string,
+    fields: string[],
+    summary: string,
+  ) {
     researchRequestRef.current?.abort()
     const controller = new AbortController()
     researchRequestRef.current = controller
@@ -189,7 +199,7 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
     setResearchError('')
 
     try {
-      const next = await researchCompany(company, role, jdText, controller.signal)
+      const next = await researchCompany(company, role, fields, summary, controller.signal)
       if (controller.signal.aborted) return
       setProfile(next)
       setResearchStatus('ready')
@@ -438,7 +448,12 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               onRun={() => void runClassification()}
               onResearch={() => {
                 if (result?.data.company.name) {
-                  void runResearch(result.data.company.name, result.data.role.title)
+                  void runResearch(
+                    result.data.company.name,
+                    result.data.role.title,
+                    result.data.role.fields,
+                    result.data.summary,
+                  )
                 }
               }}
             />

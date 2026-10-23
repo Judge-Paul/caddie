@@ -88,6 +88,10 @@ export async function searchWeb(
   const result = await post<SearchResponse>('/search', config, {
     query: query.slice(0, 200),
     numResults: Math.min(25, Math.max(1, numResults)),
+    // Structured extraction does the reading; fast search is enough to find the
+    // official site and one or two directories.
+    provider: 'parallel',
+    mode: 'fast',
   })
 
   return (result.results ?? []).flatMap((entry) => {
@@ -101,15 +105,28 @@ export async function searchWeb(
   })
 }
 
-export async function fetchMarkdown(
+export type JsonSchema = Record<string, unknown>
+
+/** Ask Browserbase to extract JSON matching the schema. No LLM tokens on our side. */
+export async function fetchJson(
   config: ServerConfig,
   url: string,
-): Promise<string> {
+  schema: JsonSchema,
+): Promise<Record<string, unknown> | null> {
   const result = await post<FetchResponse>('/fetch', config, {
     url,
-    format: 'markdown',
+    format: 'json',
+    schema,
     allowRedirects: true,
   })
 
-  return typeof result.content === 'string' ? result.content : ''
+  if (
+    typeof result.content !== 'object' ||
+    result.content === null ||
+    Array.isArray(result.content)
+  ) {
+    return null
+  }
+
+  return result.content as Record<string, unknown>
 }
