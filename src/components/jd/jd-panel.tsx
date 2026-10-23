@@ -8,13 +8,22 @@ import {
 } from 'react'
 
 import { CoverageRing } from '@/components/coverage-ring'
-import { JdData, type ClassifyStatus } from '@/components/jd/jd-data'
+import {
+  JdData,
+  type ClassifyStatus,
+  type ResearchStatus,
+} from '@/components/jd/jd-data'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { classifyJd } from '@/lib/classify'
 import { scoreRequirements } from '@/lib/match'
-import type { ClassificationResult } from '@shared/jd-classification'
+import { researchCompany } from '@/lib/research'
+import type {
+  ClassificationResult,
+  ResearchResult,
+  Signal,
+} from '@shared/jd-classification'
 import { cn } from 'cn'
 import { AlertCircle, ClipboardPaste, LoaderCircle, X } from 'lucide-react'
 
@@ -26,6 +35,7 @@ type JdPanelProps = {
 }
 
 const MAX_GAP_CHIPS = 4
+const MAX_RELATED_CHIPS = 4
 
 function ModeButton({
   active,
@@ -58,38 +68,70 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef<AbortController | null>(null)
+  const researchRequestRef = useRef<AbortController | null>(null)
 
   const [status, setStatus] = useState<ClassifyStatus>('idle')
   const [result, setResult] = useState<ClassificationResult | null>(null)
   const [error, setError] = useState('')
+
+  const [profile, setProfile] = useState<ResearchResult | null>(null)
+  const [researchStatus, setResearchStatus] = useState<ResearchStatus>('idle')
+  const [researchError, setResearchError] = useState('')
 
   const hasText = value.trim().length > 0
   const words = hasText ? value.trim().split(/\s+/).length : 0
   const showEmptyState = !hasText
   const canReview = hasText
 
+  const signals = useMemo(() => {
+    const seen = new Set<string>()
+    const list: Signal[] = []
+
+    for (const signal of [
+      ...(result?.data.signals ?? []),
+      ...(profile?.profile.signals ?? []),
+    ]) {
+      const key = signal.label.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      list.push(signal)
+    }
+
+    return list
+  }, [result, profile])
+
   // The score follows the classified posting, not a separate lexicon pass. The
   // CV side recomputes for free when the reader uploads a different CV.
   const score = useMemo(
-    () => (result ? scoreRequirements(cvText, value, result.data.requirements) : null),
-    [cvText, value, result],
+    () =>
+      result
+        ? scoreRequirements(cvText, value, result.data.requirements, signals)
+        : null,
+    [cvText, value, result, signals],
   )
 
   // Leaving the panel must not leave a request running.
   useEffect(
     () => () => {
       requestRef.current?.abort()
+      researchRequestRef.current?.abort()
       requestRef.current = null
+      researchRequestRef.current = null
     },
     [],
   )
 
   function resetClassification() {
     requestRef.current?.abort()
+    researchRequestRef.current?.abort()
     requestRef.current = null
+    researchRequestRef.current = null
     setResult(null)
     setStatus('idle')
     setError('')
+    setProfile(null)
+    setResearchStatus('idle')
+    setResearchError('')
   }
 
   function handleChange(next: string) {
@@ -106,6 +148,13 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
     const controller = new AbortController()
     requestRef.current = controller
 
+    // A new read replaces the old research too.
+    researchRequestRef.current?.abort()
+    researchRequestRef.current = null
+    setProfile(null)
+    setResearchStatus('idle')
+    setResearchError('')
+
     setStatus('loading')
     setError('')
 
@@ -114,6 +163,10 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
       if (controller.signal.aborted) return
       setResult(next)
       setStatus('ready')
+
+      if (next.data.company.name) {
+        void runResearch(next.data.company.name, next.data.role.title, text)
+      }
     } catch (caught) {
       if (controller.signal.aborted) return
       setError(
@@ -124,6 +177,30 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
       setStatus('error')
     } finally {
       if (requestRef.current === controller) requestRef.current = null
+    }
+  }
+
+  async function runResearch(company: string, role: string, jdText: string = value) {
+    researchRequestRef.current?.abort()
+    const controller = new AbortController()
+    researchRequestRef.current = controller
+
+    setResearchStatus('loading')
+    setResearchError('')
+
+    try {
+      const next = await researchCompany(company, role, jdText, controller.signal)
+      if (controller.signal.aborted) return
+      setProfile(next)
+      setResearchStatus('ready')
+    } catch (caught) {
+      if (controller.signal.aborted) return
+      setResearchError(
+        caught instanceof Error ? caught.message : 'Company research failed. Try again.',
+      )
+      setResearchStatus('error')
+    } finally {
+      if (researchRequestRef.current === controller) researchRequestRef.current = null
     }
   }
 
@@ -274,6 +351,36 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               </div>
             </div>
           ) : null}
+
+          {score.related.length > 0 ? (
+            <div className="mt-2.5">
+              <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                Worth showing
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {score.related.slice(0, MAX_RELATED_CHIPS).map((item) => (
+                  <span
+                    key={item.key}
+                    className="rounded-md border border-related-line/70 bg-related/60 px-1.5 py-[1px] text-[10.5px] font-medium text-related-foreground"
+                  >
+                    {item.term}
+                  </span>
+                ))}
+                {score.related.length > MAX_RELATED_CHIPS ? (
+                  <span className="rounded-md px-1.5 py-[1px] text-[10.5px] text-muted-foreground">
+                    +{score.related.length - MAX_RELATED_CHIPS} more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {researchStatus === 'loading' && result?.data.company.name ? (
+            <p className="mt-2 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+              <LoaderCircle className="size-3 animate-spin" strokeWidth={2} />
+              Researching {result.data.company.name} for more relevant signals…
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -325,7 +432,15 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               status={status}
               result={result}
               error={error}
+              profile={profile}
+              researchStatus={researchStatus}
+              researchError={researchError}
               onRun={() => void runClassification()}
+              onResearch={() => {
+                if (result?.data.company.name) {
+                  void runResearch(result.data.company.name, result.data.role.title)
+                }
+              }}
             />
           </div>
         ) : mode === 'edit' || !canReview ? (
@@ -374,18 +489,31 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
           >
             <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-[#2a3446]">
               {score
-                ? score.pieces.map((piece, index) =>
-                    piece.mark ? (
-                      <mark
-                        key={index}
-                        className="rounded-[3px] bg-mark px-[2px] text-mark-foreground shadow-[inset_0_-1px_0_var(--mark-line)]"
-                      >
-                        {piece.text}
-                      </mark>
-                    ) : (
-                      <span key={index}>{piece.text}</span>
-                    ),
-                  )
+                ? score.pieces.map((piece, index) => {
+                    if (piece.mark === 'gap') {
+                      return (
+                        <mark
+                          key={index}
+                          className="rounded-[3px] bg-mark px-[2px] text-mark-foreground shadow-[inset_0_-1px_0_var(--mark-line)]"
+                        >
+                          {piece.text}
+                        </mark>
+                      )
+                    }
+
+                    if (piece.mark === 'related') {
+                      return (
+                        <mark
+                          key={index}
+                          className="rounded-[3px] bg-related px-[2px] text-related-foreground shadow-[inset_0_-1px_0_var(--related-line)]"
+                        >
+                          {piece.text}
+                        </mark>
+                      )
+                    }
+
+                    return <span key={index}>{piece.text}</span>
+                  })
                 : value}
             </div>
           </div>
@@ -393,14 +521,18 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
       </div>
 
       {mode === 'review' && hasText && score ? (
-        <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border/70 bg-muted/30 px-5 py-2.5">
-          <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="size-2.5 rounded-[2px] bg-mark ring-1 ring-mark-line" />
-            Not found in your CV
+        <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/70 bg-muted/30 px-5 py-2.5 text-[11px] text-muted-foreground">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-[2px] bg-mark ring-1 ring-mark-line" />
+              Missing
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-[2px] bg-related ring-1 ring-related-line" />
+              Worth showing
+            </span>
           </span>
-          <span className="text-[11px] text-muted-foreground">
-            Coverage runs in your browser
-          </span>
+          <span>Matching stays in your browser</span>
         </div>
       ) : null}
     </aside>
