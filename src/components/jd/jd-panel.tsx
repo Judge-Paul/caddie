@@ -1,10 +1,13 @@
-import { useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 
 import { CoverageRing } from '@/components/coverage-ring'
+import { JdData, type ClassifyStatus } from '@/components/jd/jd-data'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import type { Analysis } from '@/lib/analyze'
+import { classifyJd } from '@/lib/classify'
+import type { ClassificationResult } from '@shared/jd-classification'
 import { cn } from 'cn'
 import { ClipboardPaste, X } from 'lucide-react'
 
@@ -44,18 +47,70 @@ function ModeButton({
 }
 
 export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProps) {
-  const [mode, setMode] = useState<'edit' | 'review'>('edit')
+  const [mode, setMode] = useState<'edit' | 'review' | 'data'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
+  const requestRef = useRef<AbortController | null>(null)
+
+  const [status, setStatus] = useState<ClassifyStatus>('idle')
+  const [result, setResult] = useState<ClassificationResult | null>(null)
+  const [error, setError] = useState('')
 
   const hasText = value.trim().length > 0
   const words = hasText ? value.trim().split(/\s+/).length : 0
   const showEmptyState = !hasText
   const canReview = hasText
 
+  // Leaving the panel must not leave a request running.
+  useEffect(
+    () => () => {
+      requestRef.current?.abort()
+      requestRef.current = null
+    },
+    [],
+  )
+
+  function resetClassification() {
+    requestRef.current?.abort()
+    requestRef.current = null
+    setResult(null)
+    setStatus('idle')
+    setError('')
+  }
+
   function handleChange(next: string) {
+    resetClassification()
     onChange(next)
     if (!next.trim()) setMode('edit')
+  }
+
+  async function runClassification() {
+    const text = value.trim()
+    if (text.length === 0) return
+
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
+
+    setStatus('loading')
+    setError('')
+
+    try {
+      const next = await classifyJd(text, controller.signal)
+      if (controller.signal.aborted) return
+      setResult(next)
+      setStatus('ready')
+    } catch (caught) {
+      if (controller.signal.aborted) return
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'The posting could not be classified. Try again.',
+      )
+      setStatus('error')
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null
+    }
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -68,7 +123,7 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
       pasted +
       value.slice(event.currentTarget.selectionEnd)
 
-    onChange(next)
+    handleChange(next)
     openReview()
   }
 
@@ -79,11 +134,13 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
   }
 
   function handleLoadSample() {
+    resetClassification()
     onLoadSample()
     openReview()
   }
 
   function handleClear() {
+    resetClassification()
     onChange('')
     setMode('edit')
     requestAnimationFrame(() => textareaRef.current?.focus())
@@ -181,6 +238,9 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
             <ModeButton active={mode === 'review'} onClick={() => setMode('review')}>
               Review
             </ModeButton>
+            <ModeButton active={mode === 'data'} onClick={() => setMode('data')}>
+              Data
+            </ModeButton>
           </div>
           <div className="flex items-center gap-0.5">
             <Button
@@ -205,7 +265,16 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
       ) : null}
 
       <div className="relative min-h-[300px] flex-1 lg:min-h-0">
-        {mode === 'edit' || !canReview ? (
+        {mode === 'data' && canReview ? (
+          <div className="h-full overflow-y-auto px-5 py-4">
+            <JdData
+              status={status}
+              result={result}
+              error={error}
+              onRun={() => void runClassification()}
+            />
+          </div>
+        ) : mode === 'edit' || !canReview ? (
           <div className="relative h-full">
             <Textarea
               ref={textareaRef}
@@ -274,7 +343,7 @@ export function JdPanel({ value, analysis, onChange, onLoadSample }: JdPanelProp
             Not found in your CV
           </span>
           <span className="text-[11px] text-muted-foreground">
-            Nothing leaves this page
+            Coverage runs in your browser
           </span>
         </div>
       ) : null}
