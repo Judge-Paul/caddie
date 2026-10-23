@@ -37,8 +37,9 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   copyable, and the last upload is restored from your browser on reload. Until
   you upload, a sample CV is shown, authored at 794×1123px and scaled so its
   layout is identical at every viewport.
-- **Job description panel** — paste, review, and data modes. Gemma reads a
-  pasted posting in the background; once it is done, the score and red gaps
+- **Job description panel** — paste, review, and data modes. A local check plus
+  Clef-flash rejects links, CVs and cover letters before Gemma runs. Gemma then
+  reads the posting in the background; once it is done, the score and red gaps
   appear in Review, with amber signals for relevant experience to show.
 - **Matching** — `src/lib/match.ts` scores the classified must-haves against
   the text of the CV on screen: an uploaded PDF's extracted text, or the

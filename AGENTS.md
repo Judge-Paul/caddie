@@ -15,7 +15,8 @@ behave, so the product stays coherent no matter which agent works on it next.
 - `lucide-react` icons, Geist + Newsreader variable fonts via Fontsource
 - `pdfjs-dist` (legacy build) for uploaded CVs — canvas artwork plus a text layer
 - Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
-- Browserbase Search + Fetch for company research, summarised by the same model
+  (Gemma for extraction, Clef-flash as the paste guard)
+- Browserbase Search + Fetch for company research, extracted against a JSON schema
 - `shared/jd-classification.ts` is the classification contract shared by the
   server, the client and the eval. Do not fork the shape in a component.
 - Path aliases `@/*` → `src/*` and `@shared/*` → `shared/*`. Note the shadcn
@@ -153,6 +154,11 @@ that `src/lib/match.ts` scores against the CV.
 
 - The browser posts the JD to `/api/classify` (`src/lib/classify.ts`). The Bun
   server (`server/classify/`) builds the prompt and calls Cloudflare Workers AI.
+- **Non-JD pastes are blocked first.** A local rules check
+  (`shared/jd-guard.ts`) rejects links, CVs, cover letters and chats in the
+  browser. The server repeats it and sends only the uncertain middle to
+  Clef-flash (`server/validate.ts`); a rejection returns `not-a-jd` before Gemma
+  runs. Never spend a Gemma call to discover that the paste is not a posting.
 - **Gemma is the default model.** JEV is implemented (`server/classify/jev.ts`)
   as a decision-model alternative for the eval, but it is billed as a
   third-party model and needs credits on the account. Do not expose a model
@@ -216,8 +222,9 @@ CV measurement, and look at 1440px and 390px widths.
 Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
 viewing and selectable text, JD paste/review with classification-backed
 coverage (red missing must-haves, amber "worth showing" signals), coverage
-ring/bar, gap chips, JD classification into structured data (Data tab, Gemma
-via the Bun server), company research through Browserbase, and an eval harness.
+ring/bar, gap chips, a Clef-flash non-JD guard, JD classification into
+structured data (Data tab, Gemma via the Bun server), company research through
+Browserbase, and an eval harness.
 
 Not built yet: editing a CV, saving classifications, a job library, PDF export,
 per-line/section analysis, accounts, or a database. The uploaded CV alone is
