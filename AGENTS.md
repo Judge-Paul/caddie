@@ -13,6 +13,7 @@ behave, so the product stays coherent no matter which agent works on it next.
 - shadcn/ui, `base-nova` style on `@base-ui/react` — add components with
   `npx shadcn@latest add <name>`; they land in `src/components/ui/`
 - `lucide-react` icons, Geist + Newsreader variable fonts via Fontsource
+- `pdfjs-dist` (legacy build) for uploaded CVs — canvas artwork plus a text layer
 - Path alias `@/*` → `src/*`. Note the shadcn convention here: components import
   `cn` from the `cn` package, not from `@/lib/utils`.
 
@@ -88,6 +89,11 @@ entrance animations on load, no bouncing.
   one-page guarantee depend on the fixed canvas. After changing CV content,
   re-measure: the last element must finish inside 1123px, ideally with 40–60px
   of bottom margin.
+- **An uploaded PDF replaces that paper.** Pages are rendered at the measured
+  pane width, stacked with `paper-shadow`, and scaled by width only — never
+  crop or letterbox a page. pdf.js's text layer sits over each canvas so text
+  can be selected and copied; keep it, and keep the toolbar arrows working at
+  every width (sticky at the bottom of the pane, hidden for a single page).
 - The CV is read-only for now. Do not add editing affordances to the paper.
 
 ## How matching works
@@ -136,9 +142,10 @@ CV measurement, and look at 1440px and 390px widths.
 
 ## Status
 
-Built: brand + tokens, one-page CV preview, JD paste/review with red coverage
-marks, coverage ring/bar, gap chips.
+Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
+viewing and selectable text, JD paste/review with red coverage marks, coverage
+ring/bar, gap chips.
 
-Not built yet: uploading or editing a real CV, persistence, job library, PDF
+Not built yet: editing a CV, saving or revisiting uploads, a job library, PDF
 export, per-line/section analysis, any backend. Don't imply these exist in copy
 until they do.
