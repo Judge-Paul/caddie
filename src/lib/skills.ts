@@ -1,13 +1,12 @@
 /**
- * The vocabulary Caddie treats as a "requirement" in a job description.
+ * Vocabulary for the deterministic candidate finder (JEV and the eval) and for
+ * the CV tokenizer. The scored requirements now come from the classifier, so
+ * this list is not the definition of a requirement any more.
  *
  * Kept as plain lists on purpose: any agent adding a feature can extend a
  * category without touching the matching logic. Keywords are matched after
  * lowercasing and light stemming, so "tests" and "testing" both resolve to
  * "test"; spelling variants belong in SYNONYMS in analyze.ts.
- *
- * Everything not in this list is treated as prose and is never highlighted —
- * that is what keeps the red marks meaningful.
  */
 
 const FRONTEND = [
