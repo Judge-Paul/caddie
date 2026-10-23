@@ -10,8 +10,9 @@ Field rules
 - role.title: the job title as written. Drop the company, location, team and req IDs. If several titles appear, use the one being hired for.
 - role.family: frontend | backend | fullstack | mobile | data | ml | devops | security | design | product | qa | other
 - role.seniority: intern | junior | mid | senior | staff | principal | lead | director | unspecified. Use the title first, then the years of experience asked for.
+- role.fields: 1-6 short lowercase areas the role actually covers, e.g. ["mobile", "video editing", "ai agents"]. Describe the work, not the title.
 - company.name: the employer's name, or null when the posting never names them.
-- company.domain: fintech | health | ecommerce | saas | marketplace | education | gaming | media | agency | developer-tools | logistics | other | unspecified. Describe the product the team builds. Use "agency" when the employer is a studio or agency delivering client work, "developer-tools" for products used by engineers, "saas" for subscription software.
+- company.sectors: 1-4 of ai | media | consumer | design | productivity | saas | developer-tools | fintech | health | ecommerce | marketplace | education | gaming | agency | logistics | other. Describe what the company builds, not the role. A consumer video editor is ["media", "consumer"]; an AI-native one also gets "ai". Pick the product's sectors and use the same set for the same company.
 - work.mode: remote | hybrid | onsite | unspecified. "Remote (EU)" is remote; "three days in the office" is hybrid.
 - work.location: as written, e.g. "Berlin, Germany" or "EU". null when absent.
 - work.employment: "Full-time", "Part-time", "Contract", "Internship" as stated, else null.
@@ -31,9 +32,24 @@ Requirements
   "React Native or Kotlin" -> one entry, combination "any", items ["React Native", "Kotlin"].
   "AWS with Docker and Kubernetes" -> three entries, each combination "all" with one item.
 - items: short terms, spelled as the posting spells them ("React Native", "Kotlin", "A/B testing"). No invented expansions, no sentences, no term repeated across entries.
+- match: 1-4 short terms a CV would contain that evidence this requirement. Skills use their usual spelling. Experience sentences use the nouns and technologies that demonstrate them, never the sentence itself. Any ONE match term satisfies the requirement.
+  An experience requirement should include the concrete tools named in the same section that would demonstrate it.
+  "Shipped mobile apps people use every day" (alongside "Swift, Kotlin, or React Native") -> ["iOS", "Android", "Swift", "Kotlin", "React Native", "mobile app"].
+  "You're a strong mobile engineer, whether that's Swift, Kotlin, or React Native" -> ["Swift", "Kotlin", "React Native"].
+  "Built a camera, photo, or video app" -> ["camera", "photo", "video"].
+  "5+ years of professional frontend experience" -> ["frontend"].
+  A common synonym the posting does not use is allowed ("React" for "React.js"); never invent a technology or tool.
 - category: language | framework | tool | platform | practice | domain | soft-skill | education | experience | other
 - years: the minimum years stated for that requirement (a number), else null. "5+ years of frontend experience" becomes years 5 on that entry.
 - evidence: a verbatim snippet from the posting, at most 120 characters, that justifies the entry. If you cannot quote it, use "".
+
+Signals
+- Collect 0-6 relevant experience areas the posting implies but does not demand. These are shown in amber as worth showing, never scored and never treated as gaps.
+- Use responsibilities and product context, not the requirement list. Do not duplicate a requirement, and do not move an explicit nice-to-have here.
+- Each signal: label (short), terms (1-6 CV-searchable terms), reason (one sentence), evidence (a verbatim snippet, max 120 chars).
+  "Handling real phone footage: 4K, HDR, and huge files" -> label "Phone video capture and processing", terms ["4K", "HDR", "footage", "camera", "video"], reason "The role works with real phone footage in a video editor".
+  "Uploads that survive bad networks and the app going to the background" -> label "Resilient uploads", terms ["uploads", "background", "offline", "networks"], reason "Uploads must survive weak networks and backgrounding".
+- If nothing is implied beyond the requirements, return [].
 
 Also
 - responsibilities: up to 8 short verb phrases ("Own the dashboard experience").
@@ -41,12 +57,12 @@ Also
 - keywords: up to 15 terms that identify this posting: product, domain, customers, distinctive tools. Lowercase unless it is a proper noun.
 - summary: one factual sentence under 160 characters. No marketing language.
 
-Never invent a term that is not in the posting. If a section is absent, return [] or null rather than guessing.
+Never invent a requirement, technology, benefit or company fact. A match term may use a common synonym for something in the posting; signals must be grounded in a quoted line. If a section is absent, return [] or null rather than guessing.
 
 Return exactly this shape:
 {
-  "role": { "title": "...", "family": "...", "seniority": "..." },
-  "company": { "name": null, "domain": "..." },
+  "role": { "title": "...", "family": "...", "seniority": "...", "fields": ["..."] },
+  "company": { "name": null, "sectors": ["..."] },
   "work": { "mode": "...", "location": null, "employment": null, "timezone": null },
   "compensation": { "salary": null, "equity": null },
   "requirements": [
@@ -56,8 +72,17 @@ Return exactly this shape:
       "importance": "must",
       "combination": "any",
       "items": ["React Native", "Kotlin"],
+      "match": ["React Native", "Kotlin"],
       "years": null,
       "evidence": "React Native or Kotlin on a shipping app"
+    }
+  ],
+  "signals": [
+    {
+      "label": "Phone video capture and processing",
+      "terms": ["4K", "HDR", "footage", "video"],
+      "reason": "The role works with real phone footage in a video editor",
+      "evidence": "Handling real phone footage: 4K, HDR, and huge files"
     }
   ],
   "responsibilities": ["..."],

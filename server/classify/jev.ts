@@ -232,6 +232,7 @@ export async function classifyWithJev(
       importance,
       combination: items.length > 1 ? 'any' : 'all',
       items,
+      match: items,
       years: null,
       evidence: text.slice(group.members[0].start, group.members[group.members.length - 1].end),
     })

@@ -52,6 +52,29 @@ export const DOMAINS = [
   'unspecified',
 ] as const
 
+/**
+ * Sectors are multi-label. A company can be media, consumer and AI at once; the
+ * single `domain` above stays as a coarse primary for scoring and compatibility.
+ */
+export const SECTORS = [
+  'ai',
+  'media',
+  'consumer',
+  'design',
+  'productivity',
+  'saas',
+  'developer-tools',
+  'fintech',
+  'health',
+  'ecommerce',
+  'marketplace',
+  'education',
+  'gaming',
+  'agency',
+  'logistics',
+  'other',
+] as const
+
 export const REQUIREMENT_CATEGORIES = [
   'language',
   'framework',
@@ -74,6 +97,7 @@ export type RoleFamily = (typeof ROLE_FAMILIES)[number]
 export type Seniority = (typeof SENIORITIES)[number]
 export type WorkMode = (typeof WORK_MODES)[number]
 export type Domain = (typeof DOMAINS)[number]
+export type Sector = (typeof SECTORS)[number]
 export type RequirementCategory = (typeof REQUIREMENT_CATEGORIES)[number]
 export type Importance = (typeof IMPORTANCES)[number]
 export type Combination = (typeof COMBINATIONS)[number]
@@ -84,13 +108,30 @@ export type Requirement = {
   importance: Importance
   combination: Combination
   items: string[]
+  /**
+   * Concrete CV-searchable evidence for this requirement. A sentence like
+   * "Shipped mobile apps people use every day" becomes ["iOS", "Android",
+   * "React Native", "mobile app"]; any one of them can satisfy it.
+   */
+  match: string[]
   years: number | null
   evidence: string
 }
 
+/**
+ * Relevant experience the posting implies but does not demand. Shown in amber
+ * as "worth showing", never scored and never red.
+ */
+export type Signal = {
+  label: string
+  terms: string[]
+  reason: string
+  evidence: string
+}
+
 export type JdClassification = {
-  role: { title: string; family: RoleFamily; seniority: Seniority }
-  company: { name: string | null; domain: Domain }
+  role: { title: string; family: RoleFamily; seniority: Seniority; fields: string[] }
+  company: { name: string | null; domain: Domain; sectors: Sector[] }
   work: {
     mode: WorkMode
     location: string | null
@@ -99,6 +140,7 @@ export type JdClassification = {
   }
   compensation: { salary: string | null; equity: boolean | null }
   requirements: Requirement[]
+  signals: Signal[]
   responsibilities: string[]
   benefits: string[]
   keywords: string[]
@@ -112,12 +154,42 @@ export type ClassificationMeta = {
   modelId: string
   latencyMs: number
   attempts: number
+  cached?: boolean
   usage?: Record<string, number>
 }
 
 export type ClassificationResult = {
   data: JdClassification
   meta: ClassificationMeta
+}
+
+/** Research is public company context; it never includes the CV. */
+export type Founder = { name: string; role: string | null }
+
+export type CompanyLink = { title: string; url: string }
+
+export type CompanyProfile = {
+  name: string
+  summary: string
+  sectors: Sector[]
+  founders: Founder[]
+  stage: string | null
+  funding: string | null
+  links: CompanyLink[]
+  signals: Signal[]
+  sources: string[]
+  researchedAt: string
+}
+
+export type ResearchMeta = {
+  cached: boolean
+  latencyMs: number
+  sourceCount: number
+}
+
+export type ResearchResult = {
+  profile: CompanyProfile
+  meta: ResearchMeta
 }
 
 export const FAMILY_LABELS: Record<RoleFamily, string> = {
@@ -170,6 +242,25 @@ export const DOMAIN_LABELS: Record<Domain, string> = {
   unspecified: 'Domain not stated',
 }
 
+export const SECTOR_LABELS: Record<Sector, string> = {
+  ai: 'AI',
+  media: 'Media',
+  consumer: 'Consumer',
+  design: 'Design',
+  productivity: 'Productivity',
+  saas: 'SaaS',
+  'developer-tools': 'Developer tools',
+  fintech: 'Fintech',
+  health: 'Health',
+  ecommerce: 'Ecommerce',
+  marketplace: 'Marketplace',
+  education: 'Education',
+  gaming: 'Gaming',
+  agency: 'Agency',
+  logistics: 'Logistics',
+  other: 'Other',
+}
+
 export const CATEGORY_LABELS: Record<RequirementCategory, string> = {
   language: 'Language',
   framework: 'Framework',
@@ -185,11 +276,12 @@ export const CATEGORY_LABELS: Record<RequirementCategory, string> = {
 
 export function emptyClassification(): JdClassification {
   return {
-    role: { title: '', family: 'other', seniority: 'unspecified' },
-    company: { name: null, domain: 'unspecified' },
+    role: { title: '', family: 'other', seniority: 'unspecified', fields: [] },
+    company: { name: null, domain: 'unspecified', sectors: [] },
     work: { mode: 'unspecified', location: null, employment: null, timezone: null },
     compensation: { salary: null, equity: null },
     requirements: [],
+    signals: [],
     responsibilities: [],
     benefits: [],
     keywords: [],
@@ -257,6 +349,7 @@ function normaliseRequirement(value: unknown): Requirement | null {
   const importance = pick(IMPORTANCES, value.importance, 'must')
   const rawCombination = pick(COMBINATIONS, value.combination, 'all')
   const evidence = text(value.evidence, 180)
+  const match = stringList(value.match, 8, 60)
 
   // "any" only means anything when the posting says so. A model that turns
   // "AWS with Docker and Kubernetes" into an either-or group is contradicted
@@ -271,8 +364,82 @@ function normaliseRequirement(value: unknown): Requirement | null {
     importance,
     combination,
     items: items.length > 0 ? items : [label],
+    match: match.length > 0 ? match : items.length > 0 ? items : [label],
     years: normaliseYears(value.years),
     evidence,
+  }
+}
+
+function normaliseSignal(value: unknown): Signal | null {
+  if (!isRecord(value)) return null
+
+  const label = text(value.label, 100)
+  const terms = stringList(value.terms, 8, 60)
+  if (!label || terms.length === 0) return null
+
+  return {
+    label,
+    terms,
+    reason: text(value.reason, 180),
+    evidence: text(value.evidence, 180),
+  }
+}
+
+function normaliseSignals(value: unknown, max = 6): Signal[] {
+  if (!Array.isArray(value)) return []
+
+  const signals: Signal[] = []
+  const seen = new Set<string>()
+
+  for (const entry of value) {
+    const signal = normaliseSignal(entry)
+    if (!signal) continue
+    const key = signal.label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    signals.push(signal)
+    if (signals.length >= max) break
+  }
+
+  return signals
+}
+
+function normaliseFields(value: unknown): string[] {
+  return stringList(value, 6, 40).map((field) => field.toLowerCase())
+}
+
+function normaliseSectors(value: unknown, domain: unknown): Sector[] {
+  const sectors: Sector[] = []
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry !== 'string') continue
+      if (!(SECTORS as readonly string[]).includes(entry)) continue
+      if (!sectors.includes(entry as Sector)) sectors.push(entry as Sector)
+      if (sectors.length >= 4) break
+    }
+  }
+
+  if (sectors.length === 0) {
+    const fallback = pick(DOMAINS, domain, 'unspecified')
+    if (fallback !== 'unspecified' && (SECTORS as readonly string[]).includes(fallback)) {
+      sectors.push(fallback as Sector)
+    }
+  }
+
+  // Canonical order, so the same set always reads the same in the UI.
+  return sectors.sort(
+    (left, right) => SECTORS.indexOf(left) - SECTORS.indexOf(right),
+  )
+}
+
+function normaliseUrl(value: unknown) {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
+  } catch {
+    return null
   }
 }
 
@@ -329,15 +496,22 @@ export function normaliseClassification(value: unknown): JdClassification {
     }
   }
 
+  const sectors = normaliseSectors(company.sectors, company.domain)
+  const domainFromSectors = sectors.find((sector) =>
+    (DOMAINS as readonly string[]).includes(sector),
+  ) as Domain | undefined
+
   return {
     role: {
       title: text(role.title, 120),
       family: pick(ROLE_FAMILIES, role.family, 'other'),
       seniority: pick(SENIORITIES, role.seniority, 'unspecified'),
+      fields: normaliseFields(role.fields),
     },
     company: {
       name: nullableText(company.name, 80),
-      domain: pick(DOMAINS, company.domain, 'unspecified'),
+      domain: pick(DOMAINS, company.domain, domainFromSectors ?? 'unspecified'),
+      sectors,
     },
     work: {
       mode: pick(WORK_MODES, work.mode, 'unspecified'),
@@ -350,10 +524,94 @@ export function normaliseClassification(value: unknown): JdClassification {
       equity: typeof compensation.equity === 'boolean' ? compensation.equity : null,
     },
     requirements,
+    signals: normaliseSignals(value.signals),
     responsibilities: stringList(value.responsibilities, 8, 140),
     benefits: stringList(value.benefits, 8, 100),
     keywords: stringList(value.keywords, 15, 40),
     summary: text(value.summary, 240),
+  }
+}
+
+/**
+ * Stable lookup key for a company. Used by the identity and research caches so
+ * "Cardboard, Inc." and "cardboard" resolve to the same sectors.
+ */
+export function companyKey(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|limited|gmbh|corp|corporation|co)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+}
+
+export function emptyCompanyProfile(name: string): CompanyProfile {
+  return {
+    name,
+    summary: '',
+    sectors: [],
+    founders: [],
+    stage: null,
+    funding: null,
+    links: [],
+    signals: [],
+    sources: [],
+    researchedAt: new Date().toISOString(),
+  }
+}
+
+/** Coerce researched company data into the profile contract. */
+export function normaliseCompanyProfile(
+  value: unknown,
+  fallbackName: string,
+): CompanyProfile {
+  const profile = emptyCompanyProfile(
+    (isRecord(value) && text(value.name, 80)) || fallbackName,
+  )
+
+  if (!isRecord(value)) return profile
+
+  const founders: Founder[] = []
+  if (Array.isArray(value.founders)) {
+    for (const entry of value.founders) {
+      const name = isRecord(entry) ? text(entry.name, 80) : text(entry, 80)
+      if (!name) continue
+      const role = isRecord(entry) ? nullableText(entry.role, 80) : null
+      if (founders.some((founder) => founder.name.toLowerCase() === name.toLowerCase())) {
+        continue
+      }
+      founders.push({ name, role })
+      if (founders.length >= 6) break
+    }
+  }
+
+  const links: CompanyLink[] = []
+  if (Array.isArray(value.links)) {
+    for (const entry of value.links) {
+      const title = isRecord(entry) ? text(entry.title, 80) : ''
+      const url = isRecord(entry) ? normaliseUrl(entry.url) : null
+      if (!url) continue
+      if (links.some((link) => link.url === url)) continue
+      links.push({ title: title || new URL(url).hostname, url })
+      if (links.length >= 5) break
+    }
+  }
+
+  const sources = stringList(value.sources, 8, 300)
+    .map((source) => normaliseUrl(source))
+    .filter((source): source is string => Boolean(source))
+
+  return {
+    name: profile.name,
+    summary: text(value.summary, 400),
+    sectors: normaliseSectors(value.sectors, 'unspecified'),
+    founders,
+    stage: nullableText(value.stage, 80),
+    funding: nullableText(value.funding, 140),
+    links,
+    signals: normaliseSignals(value.signals, 6),
+    sources: [...new Set(sources)],
+    researchedAt: new Date().toISOString(),
   }
 }
 
