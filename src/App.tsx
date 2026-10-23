@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { cv } from '@/data/cv'
 import { sampleJd } from '@/data/sample-jd'
 import { analyze, flattenCv } from '@/lib/analyze'
+import { clearCv, readCv, saveCv } from '@/lib/cv-store'
 import type { CvPdf } from '@/lib/pdf'
 import { AlertCircle, LoaderCircle, Lock, Upload, X } from 'lucide-react'
 
@@ -36,8 +37,10 @@ export default function App() {
   const [uploadId, setUploadId] = useState(0)
   const [uploadError, setUploadError] = useState('')
   const [reading, setReading] = useState(false)
+  const [restoring, setRestoring] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const paneRef = useRef<HTMLElement>(null)
+  const restoreCancelledRef = useRef(false)
 
   // An uploaded CV replaces the sample as the side the matcher reads.
   const cvText = pdf ? pdf.text : sampleCvText
@@ -50,6 +53,38 @@ export default function App() {
     [pdf],
   )
 
+  // Bring back the last uploaded CV on load. Best effort: storage may be
+  // unavailable (private mode), in which case the sample stays.
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const file = await readCv()
+        if (!file || cancelled || restoreCancelledRef.current) return
+
+        const { loadCvPdf } = await import('@/lib/pdf')
+        const next = await loadCvPdf(file)
+
+        if (cancelled || restoreCancelledRef.current) {
+          void next.doc.loadingTask.destroy().catch(() => {})
+          return
+        }
+
+        setPdf(next)
+        setUploadId((id) => id + 1)
+      } catch {
+        void clearCv().catch(() => {})
+      } finally {
+        if (!cancelled) setRestoring(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   function openPicker() {
     fileInputRef.current?.click()
   }
@@ -57,6 +92,7 @@ export default function App() {
   async function handleFile(file: File | undefined) {
     if (!file) return
 
+    restoreCancelledRef.current = true
     setUploadError('')
     setReading(true)
     const previous = pdf
@@ -71,6 +107,7 @@ export default function App() {
       window.setTimeout(() => {
         void previous?.doc.loadingTask.destroy().catch(() => {})
       }, 0)
+      void saveCv(file).catch(() => {})
     } catch (error) {
       setUploadError(
         error instanceof Error && error.name === 'CvPdfError'
@@ -85,8 +122,10 @@ export default function App() {
   }
 
   function removePdf() {
+    restoreCancelledRef.current = true
     setPdf(null)
     setUploadError('')
+    void clearCv().catch(() => {})
   }
 
   const pageLabel = pdf
@@ -106,7 +145,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-2 text-[11.5px] whitespace-nowrap text-muted-foreground">
           <Lock className="size-3.5" strokeWidth={1.75} />
-          <span className="hidden sm:inline">Runs in your browser</span>
+          <span className="hidden sm:inline">Matching runs in your browser</span>
         </div>
       </header>
 
@@ -180,6 +219,8 @@ export default function App() {
 
             {reading && !pdf ? (
               <PaperPlaceholder label="Reading your CV" />
+            ) : restoring && !pdf ? (
+              <PaperPlaceholder label="Restoring your CV" />
             ) : pdf ? (
               <Suspense fallback={<PaperPlaceholder />}>
                 <PdfPreview key={uploadId} pdf={pdf} scrollRef={paneRef} />
