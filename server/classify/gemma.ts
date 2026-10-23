@@ -28,7 +28,7 @@ export async function classifyWithGemma(
       messages:
         attempt === 1 ? classificationMessages(jd) : repairMessages(jd, lastReply),
       maxTokens: MAX_TOKENS,
-      temperature: attempt === 1 ? 0.1 : 0,
+      temperature: 0,
     })
     usage = result.usage ?? usage
     lastReply = result.text

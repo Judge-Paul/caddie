@@ -3,7 +3,9 @@ import { Hono } from 'hono'
 import type { ClassifyModel } from '../shared/jd-classification'
 import { classifyJd } from './classify'
 import { CloudflareError } from './cloudflare'
-import { ConfigError, configSummary } from './env'
+import { ConfigError, configSummary, readConfig } from './env'
+import { BrowserbaseError } from './research/browserbase'
+import { researchCompany } from './research'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
@@ -49,6 +51,42 @@ app.post('/api/classify', async (c) => {
     }
     return c.json(
       { error: error instanceof Error ? error.message : 'Classification failed.' },
+      500,
+    )
+  }
+})
+
+app.post('/api/research', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    company?: unknown
+    role?: unknown
+    jd?: unknown
+  } | null
+
+  const company = typeof body?.company === 'string' ? body.company.trim() : ''
+  const role = typeof body?.role === 'string' ? body.role.trim() : ''
+  const jd = typeof body?.jd === 'string' ? body.jd.trim() : ''
+
+  if (company.length < 2 || company.length > 120) {
+    return c.json({ error: 'A company name is needed for research.' }, 400)
+  }
+
+  try {
+    return c.json(
+      await researchCompany({ company, role: role.slice(0, 120), jd: jd.slice(0, MAX_JD_CHARS) }, readConfig()),
+    )
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      return c.json({ error: error.message }, 503)
+    }
+    if (error instanceof BrowserbaseError) {
+      return c.json({ error: error.message }, error.status as 502 | 503 | 504)
+    }
+    if (error instanceof CloudflareError) {
+      return c.json({ error: error.message }, 502)
+    }
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Company research failed.' },
       500,
     )
   }

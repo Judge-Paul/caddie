@@ -20,6 +20,9 @@ dist-ssr
 # Scratch captures and sample payloads
 .tmp/
 
+# Local server cache: classification results, company identities, research
+.cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

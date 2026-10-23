@@ -8,6 +8,8 @@ export type ServerConfig = {
   apiKey: string
   gemmaModel: string
   jevModel: string
+  /** Optional. Company research uses Browserbase Search + Fetch. */
+  browserbaseKey: string | null
 }
 
 export class ConfigError extends Error {
@@ -35,6 +37,7 @@ export function readConfig(): ServerConfig {
     apiKey,
     gemmaModel: process.env.CF_GEMMA_MODEL?.trim() || DEFAULT_GEMMA_MODEL,
     jevModel: process.env.CF_JEV_MODEL?.trim() || DEFAULT_JEV_MODEL,
+    browserbaseKey: process.env.BROWSERBASE_API_KEY?.trim() || null,
   }
 }
 
@@ -43,5 +46,6 @@ export function configSummary() {
     configured: Boolean(process.env.CF_ACCOUNT_ID && process.env.CF_API_KEY),
     gemmaModel: process.env.CF_GEMMA_MODEL?.trim() || DEFAULT_GEMMA_MODEL,
     jevModel: process.env.CF_JEV_MODEL?.trim() || DEFAULT_JEV_MODEL,
+    research: Boolean(process.env.BROWSERBASE_API_KEY?.trim()),
   }
 }

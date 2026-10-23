@@ -285,7 +285,9 @@ async function main() {
 
       for (let run = 0; run < args.runs; run += 1) {
         try {
-          results.push(score(await classifyJd(evalCase.jd, model), evalCase))
+          results.push(
+            score(await classifyJd(evalCase.jd, model, { cache: false }), evalCase),
+          )
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           results.push({ ok: false, error: message })
