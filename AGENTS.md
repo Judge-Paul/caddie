@@ -165,10 +165,12 @@ that `src/lib/match.ts` scores against the CV.
   from the Data tab for hand-typed text. Always show the loading state, keep
   the request abortable, and say where the text is sent.
 - **Company research** runs after a classification that names an employer. The
-  server searches through Browserbase, fetches public pages, and asks Gemma for
-  a profile: summary, sectors, founders, stage, funding, links and `signals`.
-  It never sees the CV. Show its loading and error states; never block the
-  score on it.
+  server searches through Browserbase — the query uses the company, role fields
+  and one-line summary, not the full posting — then Browserbase Fetch extracts a
+  profile against a JSON schema: summary, sectors, founders, stage, funding,
+  links and `signals`. No chat model reads the pages, so research costs no
+  Gemma tokens. It never sees the CV. Show its loading and error states; never
+  block the score on it.
 - **Stability is deliberate.** Classification runs at temperature 0 and is
   cached by a hash of the JD; a company's sectors are cached by
   `companyKey(name)` and reused across postings; research is cached per company

@@ -51,10 +51,11 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   `shared/jd-classification.ts`: role, the fields it covers, company sectors,
   work arrangement, pay, requirements with CV-searchable match terms, signals,
   responsibilities, benefits and keywords. For a named employer, Browserbase
-  searches and reads public pages so Gemma can add a company profile — summary,
-  founders, stage, funding, links and more relevant signals. Classification
-  sends the posting to Cloudflare; research sends the company name to
-  Browserbase. Your CV never leaves the browser.
+  searches and reads public pages, then extracts a company profile — summary,
+  founders, stage, funding, links and more signals — with its JSON extraction,
+  so research uses no Gemma tokens. Classification sends the posting to
+  Cloudflare; research sends the company name, role fields and a one-line
+  summary to Browserbase, never the full posting or your CV.
 
 Built with Vite, React, Tailwind CSS v4 and shadcn/ui. Design and engineering
 conventions are in [AGENTS.md](AGENTS.md).
