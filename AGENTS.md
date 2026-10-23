@@ -15,6 +15,7 @@ behave, so the product stays coherent no matter which agent works on it next.
 - `lucide-react` icons, Geist + Newsreader variable fonts via Fontsource
 - `pdfjs-dist` (legacy build) for uploaded CVs — canvas artwork plus a text layer
 - Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
+- Browserbase Search + Fetch for company research, summarised by the same model
 - `shared/jd-classification.ts` is the classification contract shared by the
   server, the client and the eval. Do not fork the shape in a component.
 - Path aliases `@/*` → `src/*` and `@shared/*` → `shared/*`. Note the shadcn
@@ -31,7 +32,8 @@ npm run eval     # classifier scoreboard against eval/corpus.ts
 
 The classifier needs Cloudflare credentials. Copy `.env.example` to `.env.local`
 and fill in `CF_ACCOUNT_ID` and `CF_API_KEY`; never prefix them with `VITE_`.
-Matching works without them, the Data tab does not.
+Company research additionally needs `BROWSERBASE_API_KEY`. Matching works
+without either key; classification does not, and research is skipped without it.
 
 ## Brand
 
@@ -58,13 +60,17 @@ neutral greys.
 | `canvas` | `#f4f6fb` | app background behind the paper |
 | `mark` | `#ffe2e2` | **only** for "not found in your CV" |
 | `mark-foreground` | `#a31818` | text inside those marks |
+| `related` | `#fff3d6` | **only** for "worth showing" (nice-to-have or implied) |
+| `related-foreground` | `#7a4a00` | text inside amber marks |
 | `success` | `#0f7b52` | positive results, use sparingly |
 
 Blue is the product colour: use it for the primary path through the UI. The
-`mark` family means one thing — a requirement your CV does not cover. Do not
-reuse red for decoration, and do not use blue to mean "missing". Neutral
-surfaces are white cards on the canvas with a `border-border` hairline; shadows
-are for the paper and the JD card only.
+`mark` family means one thing — a must-have your CV does not cover. The
+`related` family means relevant experience worth showing; it never lowers the
+score and must never be used for a required gap. Do not reuse red or amber for
+decoration, and do not use blue to mean "missing". Neutral surfaces are white
+cards on the canvas with a `border-border` hairline; shadows are for the paper
+and the JD card only.
 
 ### Type
 
@@ -115,31 +121,35 @@ the raw text.
 
 `src/lib/match.ts` runs on the client and:
 
-1. takes the **must-have** requirements from the classification (nice-to-haves
-   stay in the Data tab; an optional term is not a gap)
-2. canonicalises each requirement term with the tokenizer in
-   `src/lib/analyze.ts` and looks for its content words in the CV vocabulary
-3. treats an either-or group as covered when any alternative appears
-4. finds every uncovered term in the posting — the term itself first, then the
-   requirement label, then its evidence quote — and returns rendering pieces
-5. returns `coverage`, `matched`, `total` and the `gaps`
+1. takes the **must-have** requirements from the classification; nice-to-haves
+   and `signals` are "worth showing", not gaps
+2. matches each requirement's `match` terms against the CV: single words use
+   the canonical vocabulary, multi-word terms must appear as a phrase
+   ("React Native" cannot be satisfied by "English (native)")
+3. treats either-or groups and match alternatives as covered when any one
+   appears; `src/lib/skills.ts` can imply CV terms ("React Native" implies
+   mobile app work)
+4. finds every uncovered must in the posting — its match terms first, then the
+   label, then the evidence quote — and returns red pieces
+5. does the same for nice-to-haves and signals, returning amber pieces
+6. returns `coverage`, `matched`, `total`, `gaps` and `related`
 
-Only those spans are marked red. Prose that is not a classified requirement is
-never highlighted, and nice-to-haves are never red. The score recomputes
-instantly when the CV changes; the classification is unchanged.
+Must-haves are the only thing that lowers the score. Prose that is not a
+classified requirement is never highlighted. Matching is client-side and
+recomputes instantly when the CV changes.
 
 `detectRequirements` in `src/lib/analyze.ts` remains the candidate finder for
-JEV, which cannot generate text. **Add vocabulary to `src/lib/skills.ts`, not
-conditionals to the matcher.** Keep matching explainable and client-side; the
-only network step is classification.
+JEV, which cannot generate text. **Add vocabulary and implied terms to
+`src/lib/skills.ts`, not conditionals to the matcher.**
 
 ## Reading a posting as data
 
 The **Data** tab turns the posting into the object in
-`shared/jd-classification.ts`: role, company, work arrangement, compensation,
-requirements (must/nice, either-or groups, years), responsibilities, benefits,
-keywords and a one-sentence summary. The same classification supplies the
-must-have set that `src/lib/match.ts` scores against the CV.
+`shared/jd-classification.ts`: role, the areas it covers (`role.fields`), company
+sectors, work arrangement, compensation, requirements (must/nice, either-or
+groups, years, `match` terms), `signals`, responsibilities, benefits, keywords
+and a one-sentence summary. The same classification supplies the must-have set
+that `src/lib/match.ts` scores against the CV.
 
 - The browser posts the JD to `/api/classify` (`src/lib/classify.ts`). The Bun
   server (`server/classify/`) builds the prompt and calls Cloudflare Workers AI.
@@ -153,10 +163,23 @@ must-have set that `src/lib/match.ts` scores against the CV.
 - Classification is slow (tens of seconds) and costs credits. It starts on
   paste or sample load because the score depends on it, and stays available
   from the Data tab for hand-typed text. Always show the loading state, keep
-  the request abortable, and say where the text is sent. Coverage itself still
-  runs in the browser; classification does not.
+  the request abortable, and say where the text is sent.
+- **Company research** runs after a classification that names an employer. The
+  server searches through Browserbase, fetches public pages, and asks Gemma for
+  a profile: summary, sectors, founders, stage, funding, links and `signals`.
+  It never sees the CV. Show its loading and error states; never block the
+  score on it.
+- **Stability is deliberate.** Classification runs at temperature 0 and is
+  cached by a hash of the JD; a company's sectors are cached by
+  `companyKey(name)` and reused across postings; research is cached per company
+  (`server/cache.ts`, `.cache/`). Research sectors, not the classifier's guess,
+  are the display truth once available.
+- `signals` are relevant experience the posting implies but does not require
+  (camera/video/4K, resilient uploads, AI agents). They are amber, never red,
+  and never part of the score.
 - `npm run eval` scores model changes against `eval/corpus.ts` and rewrites
-  `eval/report.md`. Curate labels there, not in the runner.
+  `eval/report.md`; it bypasses the classification cache. Curate labels there,
+  not in the runner.
 - If a new field is worth showing, add it to the shared type, the normaliser and
   the prompt together. Never invent a field in the renderer.
 
@@ -190,8 +213,9 @@ CV measurement, and look at 1440px and 390px widths.
 
 Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
 viewing and selectable text, JD paste/review with classification-backed
-coverage, red gap marks, coverage ring/bar, gap chips, and JD classification
-into structured data (Data tab, Gemma via the Bun server) with an eval harness.
+coverage (red missing must-haves, amber "worth showing" signals), coverage
+ring/bar, gap chips, JD classification into structured data (Data tab, Gemma
+via the Bun server), company research through Browserbase, and an eval harness.
 
 Not built yet: editing a CV, saving classifications, a job library, PDF export,
 per-line/section analysis, accounts, or a database. The uploaded CV alone is
