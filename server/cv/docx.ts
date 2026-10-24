@@ -283,17 +283,15 @@ function manualBulletPrefix(paragraph: XmlElement, full: string) {
 }
 
 function replaceWholeBlock(paragraph: XmlElement, content: string, prefix: string) {
-  const entries = textEntries(paragraph).filter((entry) => entry.value.trim())
+  const allEntries = textEntries(paragraph)
+  const entries = allEntries.filter((entry) => entry.value.trim())
   if (entries.length === 0) {
     throw new DocxError('That block has no text to replace.', 422)
   }
 
-  const prefixEntry = prefix
-    ? entries.find(
-        (entry) =>
-          entry.value.startsWith(prefix) &&
-          entry.value.trim() === prefix.trim(),
-      ) ?? null
+  const prefixKey = prefix.trim()
+  const prefixEntry = prefixKey
+    ? entries.find((entry) => entry.value.trim() === prefixKey) ?? null
     : null
   const bodyEntries = entries.filter((entry) => entry !== prefixEntry)
   const nonLink = bodyEntries.filter(
@@ -329,14 +327,14 @@ function replaceWholeBlock(paragraph: XmlElement, content: string, prefix: strin
     textElement = clone.getElementsByTagNameNS(W_NS, 't')[0]
   }
 
-  for (const entry of entries) {
+  for (const entry of allEntries) {
     if (entry.element !== textElement && entry !== prefixEntry) {
       entry.element.textContent = ''
     }
   }
 
   if (prefixEntry) {
-    prefixEntry.element.textContent = prefixEntry.value.slice(0, prefix.length)
+    prefixEntry.element.textContent = prefix
     textElement.textContent = content
   } else {
     textElement.textContent = prefix ? `${prefix}${content}` : content
