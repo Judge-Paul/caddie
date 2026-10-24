@@ -53,6 +53,7 @@ export default function App() {
   const [cvClassification, setCvClassification] = useState<CvClassification | null>(null)
   const [cvStatus, setCvStatus] = useState<CvReadStatus>('idle')
   const [cvError, setCvError] = useState('')
+  const [cvNeedsDeepRead, setCvNeedsDeepRead] = useState(false)
   const [stories, setStories] = useState<CvStory[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const paneRef = useRef<HTMLElement>(null)
@@ -150,10 +151,12 @@ export default function App() {
     setCvClassification(null)
     setCvStatus('idle')
     setCvError('')
+    setCvNeedsDeepRead(false)
   }
 
-  async function classifyCv() {
-    if (!docx || cvStatus === 'loading' || cvClassification) return
+  async function runCvClassify(mode: 'fast' | 'deep') {
+    if (!docx || cvStatus === 'loading') return
+    if (mode === 'fast' && cvClassification) return
 
     cvRequestRef.current?.abort()
     const controller = new AbortController()
@@ -162,19 +165,31 @@ export default function App() {
     setCvError('')
 
     try {
-      const result = await classifyCvDocx(docx, controller.signal)
+      const result = await classifyCvDocx(docx, controller.signal, mode)
       if (controller.signal.aborted) return
       setCvClassification(result.data)
+      setCvNeedsDeepRead(
+        mode === 'deep' ? false : Boolean(result.meta.needsDeepRead),
+      )
       setCvStatus('ready')
     } catch (error) {
       if (controller.signal.aborted) return
       setCvError(
         error instanceof Error ? error.message : 'That CV could not be read.',
       )
-      setCvStatus('error')
+      // A failed deep read should not throw away a usable fast read.
+      setCvStatus(mode === 'deep' && cvClassification ? 'ready' : 'error')
     } finally {
       if (cvRequestRef.current === controller) cvRequestRef.current = null
     }
+  }
+
+  function classifyCv() {
+    return runCvClassify('fast')
+  }
+
+  function deepReadCv() {
+    return runCvClassify('deep')
   }
 
   async function applyCvEdit(blockId: string, text: string) {
@@ -414,8 +429,10 @@ export default function App() {
             cvClassification={cvClassification}
             cvStatus={cvStatus}
             cvError={cvError}
+            cvNeedsDeepRead={cvNeedsDeepRead}
             docx={docx}
             onClassifyCv={() => void classifyCv()}
+            onDeepReadCv={() => void deepReadCv()}
             onApplyCvEdit={applyCvEdit}
             stories={stories}
             onSaveStory={handleSaveStory}

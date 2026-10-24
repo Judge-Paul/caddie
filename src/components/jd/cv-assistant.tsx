@@ -31,7 +31,9 @@ type CvAssistantProps = {
   cv: CvClassification | null
   cvStatus: CvReadStatus
   cvError: string
+  needsDeepRead: boolean
   onClassifyCv: () => void
+  onDeepReadCv: () => void
   onApplyEdit: (blockId: string, text: string) => Promise<void>
   onSaveStory: (story: CvStory) => void
   jd: JdClassification | null
@@ -63,7 +65,9 @@ export function CvAssistant({
   cv,
   cvStatus,
   cvError,
+  needsDeepRead,
   onClassifyCv,
+  onDeepReadCv,
   onApplyEdit,
   onSaveStory,
   jd,
@@ -394,7 +398,7 @@ export function CvAssistant({
                 Reading your CV
               </p>
               <p className="mt-1 max-w-[34ch] text-[12px] leading-[1.5] text-muted-foreground">
-                Mapping roles, bullets and anchors. This can take up to a minute.
+                Mapping roles and bullets. A deep read may take a minute or two.
               </p>
             </div>
           ) : cvStatus === 'error' ? (
@@ -409,9 +413,14 @@ export function CvAssistant({
               <p className="mt-1 max-w-[38ch] text-[12px] leading-[1.5] text-muted-foreground">
                 {cvError}
               </p>
-              <Button variant="outline" className="mt-4 max-sm:h-11" onClick={onClassifyCv}>
-                Try again
-              </Button>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" className="max-sm:h-11" onClick={onClassifyCv}>
+                  Try again
+                </Button>
+                <Button className="max-sm:h-11" onClick={onDeepReadCv}>
+                  Deep read with Gemma
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-5">
@@ -493,6 +502,31 @@ export function CvAssistant({
                   </select>
                 )}
               </section>
+
+              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+                <p className="max-w-[26ch] text-[10px] leading-[1.4] text-muted-foreground">
+                  {needsDeepRead
+                    ? 'The fast read may be partial. Try a slower Gemma read.'
+                    : 'Unusual layout? Try a slower Gemma read.'}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="shrink-0 text-muted-foreground hover:text-ink max-sm:h-11"
+                  onClick={onDeepReadCv}
+                >
+                  Deep read
+                </Button>
+              </div>
+
+              {cvError ? (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] leading-[1.45] text-muted-foreground"
+                >
+                  {cvError}
+                </p>
+              ) : null}
 
               {history.length > 0 ? (
                 <section className="space-y-1.5">

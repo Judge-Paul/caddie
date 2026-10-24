@@ -37,8 +37,10 @@ type JdPanelProps = {
   cvClassification: CvClassification | null
   cvStatus: CvReadStatus
   cvError: string
+  cvNeedsDeepRead: boolean
   docx: File | null
   onClassifyCv: () => void
+  onDeepReadCv: () => void
   onApplyCvEdit: (blockId: string, text: string) => Promise<void>
   stories: CvStory[]
   onSaveStory: (story: CvStory) => void
@@ -81,8 +83,10 @@ export function JdPanel({
   cvClassification,
   cvStatus,
   cvError,
+  cvNeedsDeepRead,
   docx,
   onClassifyCv,
+  onDeepReadCv,
   onApplyCvEdit,
   stories,
   onSaveStory,
@@ -679,7 +683,9 @@ export function JdPanel({
         cv={cvClassification}
         cvStatus={cvStatus}
         cvError={cvError}
+        needsDeepRead={cvNeedsDeepRead}
         onClassifyCv={onClassifyCv}
+        onDeepReadCv={onDeepReadCv}
         onApplyEdit={onApplyCvEdit}
         onSaveStory={onSaveStory}
         jd={result?.data ?? null}

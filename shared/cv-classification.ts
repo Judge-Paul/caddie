@@ -96,10 +96,12 @@ export type CvClassification = {
 }
 
 export type CvMeta = {
-  model: 'gemma'
+  model: 'clef' | 'gemma' | 'heuristic'
   modelId: string
   latencyMs: number
   attempts: number
+  /** The fast structural read may be partial; the user can ask for a deep read. */
+  needsDeepRead?: boolean
   usage?: Record<string, number>
 }
 

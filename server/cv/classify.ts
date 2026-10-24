@@ -6,26 +6,19 @@ import { extractJson } from '../../shared/jd-classification'
 import { runChat } from '../cloudflare'
 import type { ServerConfig } from '../env'
 import { parseDocx } from './docx'
+import { CvClassifyError } from './errors'
 import { cvMessages, repairCvMessages } from './prompt'
 
 const MAX_ATTEMPTS = 2
 const MAX_TOKENS = 3_000
 const MAX_CV_TEXT_CHARS = 80_000
-
-export class CvClassifyError extends Error {
-  readonly status = 422
-
-  constructor(message: string) {
-    super(message)
-    this.name = 'CvClassifyError'
-  }
-}
+const DEEP_TIMEOUT_MS = 120_000
 
 /**
  * CV content is personal data, so this result is never cached on disk. The
  * caller keeps it; the server only parses and classifies the transient request.
  */
-export async function classifyCvDocx(
+export async function classifyCvDocxDeep(
   input: Uint8Array,
   config: ServerConfig,
 ): Promise<CvClassificationResponse> {
@@ -55,6 +48,7 @@ export async function classifyCvDocx(
         attempt === 1 ? cvMessages(blocks) : repairCvMessages(blocks, lastReply),
       maxTokens: MAX_TOKENS,
       temperature: 0,
+      timeoutMs: DEEP_TIMEOUT_MS,
     }).catch((error) => {
       console.error(
         '[cv-classify] model call failed',

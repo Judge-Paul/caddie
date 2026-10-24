@@ -11,7 +11,9 @@ import {
   editDocx,
   parseDocx,
 } from './cv/docx'
-import { CvClassifyError, classifyCvDocx } from './cv/classify'
+import { classifyCvDocxDeep } from './cv/classify'
+import { classifyCvDocxFast } from './cv/fast'
+import { CvClassifyError } from './cv/errors'
 import { FitError, proposeCvFit } from './cv/fit'
 import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
@@ -252,7 +254,11 @@ app.post('/api/cv/edit', async (c) => {
 app.post('/api/cv/classify', async (c) => {
   try {
     const docx = await readDocxBytes(c)
-    return c.json(await classifyCvDocx(docx, readConfig()))
+    const deep = c.req.query('mode') === 'deep'
+    const result = deep
+      ? await classifyCvDocxDeep(docx, readConfig())
+      : await classifyCvDocxFast(docx, readConfig())
+    return c.json(result)
   } catch (error) {
     return cvFailure(c, error)
   }

@@ -43,6 +43,7 @@ async function postJson<T>(
   url: string,
   config: ServerConfig,
   body: unknown,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt += 1) {
     let response: Response
@@ -55,7 +56,7 @@ async function postJson<T>(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       })
     } catch (error) {
       const name = error instanceof Error ? error.name : ''
@@ -135,6 +136,8 @@ export async function runChat(
     temperature?: number
     /** Gemma 4 reasons before it answers; the classifier wants the answer only. */
     thinking?: boolean
+    /** Deep CV reads may need longer than the default request timeout. */
+    timeoutMs?: number
   },
 ): Promise<ChatResult> {
   const result = await postJson<ChatCompletion>(
@@ -146,6 +149,7 @@ export async function runChat(
       temperature: options.temperature ?? 0.1,
       chat_template_kwargs: { enable_thinking: options.thinking ?? false },
     },
+    options.timeoutMs,
   )
 
   return {

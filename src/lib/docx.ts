@@ -163,16 +163,20 @@ export async function editCvDocx(
 export async function classifyCvDocx(
   file: File,
   signal?: AbortSignal,
+  mode: 'fast' | 'deep' = 'fast',
 ): Promise<CvClassificationResponse> {
   let response: Response
 
   try {
-    response = await fetch('/api/cv/classify', {
-      method: 'POST',
-      headers: { 'Content-Type': DOCX_MIME },
-      body: file,
-      signal,
-    })
+    response = await fetch(
+      `/api/cv/classify${mode === 'deep' ? '?mode=deep' : ''}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': DOCX_MIME },
+        body: file,
+        signal,
+      },
+    )
   } catch (error) {
     if (signal?.aborted) throw error
     throw new DocxError('Could not reach the CV classifier.', 503)
