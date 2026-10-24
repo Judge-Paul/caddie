@@ -76,10 +76,13 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   bullets, cover letters and email drafts. The sending identity is a saved
   connection, not an empty form: once added, Profile shows the from address,
   verified domain and key suffix, with Edit and Remove actions.
-- **Cover letter and email** — Gemma drafts from the CV, the classified posting
-  and saved experiences. The draft is editable, saved to the application, and
-  never sent without a confirmation. An application address found in the posting
-  is prefilled into the email recipient and marked "From posting."
+- **Cover letter and email** — Caddie first picks the story: a direct project
+  match, a similar problem, a craft angle or an honest transferable angle, with
+  one hero proof and one supporting proof. It then writes from those selected
+  facts rather than reciting the CV. The draft is editable, saved to the
+  application, and never sent without a confirmation. An application address
+  found in the posting is prefilled into the email recipient and marked "From
+  posting."
 - **Send from your own address** — connect Resend in Profile. Sending attaches
   the application's PDF, records the recipient and time, and never auto-sends.
   The cover letter stays a separate draft; it is not automatically attached.
