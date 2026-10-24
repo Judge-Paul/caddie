@@ -432,7 +432,7 @@ export function CvAssistant({
                       Bullet replaced. The line count is unchanged.
                     </p>
                     <p className="mt-0.5 text-[11px] leading-[1.4] text-muted-foreground">
-                      The fact is saved to your local profile for future postings.
+                      The fact is saved to your account for future postings.
                     </p>
                   </div>
                 </div>
@@ -684,7 +684,7 @@ export function CvAssistant({
             </div>
             <p className="mt-1.5 text-[9.5px] leading-[1.4] text-muted-foreground">
               Only what you write is used. Nothing is invented. Facts are stored
-              in your browser profile.
+              in your account.
             </p>
           </footer>
         ) : null}

@@ -63,7 +63,6 @@ function NewApplicationDialog({
 
   useEffect(() => {
     if (!open) return
-    setError('')
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [open])
 
@@ -106,12 +105,13 @@ function NewApplicationDialog({
         }}
         aria-hidden="true"
       />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="New application"
-        className="fixed inset-x-4 top-[8vh] z-50 mx-auto flex max-h-[84vh] w-auto max-w-[560px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_80px_-30px_rgba(13,21,38,0.5)] sm:inset-x-auto"
-      >
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="New application"
+          className="pointer-events-auto flex max-h-[84vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_80px_-30px_rgba(13,21,38,0.5)]"
+        >
         <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -148,7 +148,10 @@ function NewApplicationDialog({
             id="new-application-jd"
             ref={textareaRef}
             value={jdText}
-            onChange={(event) => setJdText(event.target.value)}
+            onChange={(event) => {
+              setJdText(event.target.value)
+              if (error) setError('')
+            }}
             rows={14}
             spellCheck={false}
             placeholder="Paste the role, requirements and responsibilities…"
@@ -178,7 +181,8 @@ function NewApplicationDialog({
             {submitting ? <LoaderCircle className="animate-spin" /> : <Plus />}
             Create application
           </Button>
-        </footer>
+          </footer>
+        </div>
       </div>
     </>
   )
@@ -457,11 +461,13 @@ export function Dashboard({
         </section>
       </div>
 
-      <NewApplicationDialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreate={onCreateApplication}
-      />
+      {creating ? (
+        <NewApplicationDialog
+          open
+          onClose={() => setCreating(false)}
+          onCreate={onCreateApplication}
+        />
+      ) : null}
     </main>
   )
 }

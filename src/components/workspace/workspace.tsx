@@ -9,7 +9,7 @@ import type { ApplicationDetail, UpdateApplicationPatch } from '@shared/account'
 import type { CvClassification } from '@shared/cv-classification'
 import type { CvStory } from '@shared/cv-fit'
 import type { ClassificationResult } from '@shared/jd-classification'
-import { AlertCircle, ArrowLeft, LoaderCircle } from 'lucide-react'
+import { AlertCircle, ArrowLeft, LoaderCircle, Sparkles } from 'lucide-react'
 
 const PdfPreview = lazy(() =>
   import('@/components/cv/pdf-preview').then((module) => ({
@@ -59,6 +59,7 @@ export function Workspace({
 
   const [jd, setJd] = useState(application.jdText)
   const [jdError, setJdError] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   const [cvClassification, setCvClassification] =
     useState<CvClassification | null>(null)
@@ -70,10 +71,6 @@ export function Workspace({
 
   useEffect(() => {
     let cancelled = false
-
-    setLoadingCv(true)
-    setCvLoadError('')
-    setDocx(null)
 
     void (async () => {
       try {
@@ -139,6 +136,7 @@ export function Workspace({
 
   function handleJdChange(next: string) {
     setJd(next)
+    setAssistantOpen(false)
     setJdError('')
     if (jdTimerRef.current) window.clearTimeout(jdTimerRef.current)
     jdTimerRef.current = window.setTimeout(() => {
@@ -256,9 +254,21 @@ export function Workspace({
                 {application.company ?? 'Company not read yet'}
               </p>
             </div>
-            <span className="mt-0.5 shrink-0 rounded-md border border-border bg-background px-1.5 py-0.5 text-[10.5px] whitespace-nowrap tabular-nums text-muted-foreground">
-              {pageLabel}
-            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10.5px] whitespace-nowrap tabular-nums text-muted-foreground">
+                {pageLabel}
+              </span>
+              {application.classification ? (
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 shadow-[0_8px_24px_-16px_rgba(35,71,230,0.9)] max-sm:h-11"
+                  onClick={() => setAssistantOpen(true)}
+                >
+                  <Sparkles />
+                  Improve CV
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           {jdError ? (
@@ -322,6 +332,9 @@ export function Workspace({
           onApplyCvEdit={applyCvEdit}
           stories={stories}
           onSaveStory={onSaveStory}
+          assistantOpen={assistantOpen}
+          onAssistantOpen={() => setAssistantOpen(true)}
+          onAssistantClose={() => setAssistantOpen(false)}
           onChange={handleJdChange}
           onLoadSample={() => jd}
           initialClassification={application.classification}

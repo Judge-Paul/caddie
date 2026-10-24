@@ -80,8 +80,7 @@ function AccountApp({ user }: { user: AccountUser }) {
   const [active, setActive] = useState<ApplicationDetail | null>(null)
   const mountedRef = useRef(true)
 
-  const loadMe = useCallback(async (initial = false) => {
-    if (initial) setLoading(true)
+  const loadMe = useCallback(async () => {
     setError('')
     try {
       const next = await getMe()
@@ -92,14 +91,15 @@ function AccountApp({ user }: { user: AccountUser }) {
           caught instanceof Error ? caught.message : 'Could not open your account.',
         )
       }
-    } finally {
-      if (initial && mountedRef.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     mountedRef.current = true
-    void loadMe(true)
+    void (async () => {
+      await loadMe()
+      if (mountedRef.current) setLoading(false)
+    })()
     return () => {
       mountedRef.current = false
     }
@@ -199,7 +199,12 @@ function AccountApp({ user }: { user: AccountUser }) {
     return (
       <AccountError
         message={error || 'The account database did not answer.'}
-        onRetry={() => void loadMe(true)}
+        onRetry={() => {
+          setLoading(true)
+          void loadMe().finally(() => {
+            if (mountedRef.current) setLoading(false)
+          })
+        }}
         onSignOut={() => void handleSignOut()}
       />
     )

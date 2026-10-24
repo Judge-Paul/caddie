@@ -29,7 +29,7 @@ import type {
 } from '@shared/jd-classification'
 import { guardJd, NOT_JD_MESSAGE } from '@shared/jd-guard'
 import { cn } from 'cn'
-import { AlertCircle, ClipboardPaste, LoaderCircle, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ClipboardPaste, LoaderCircle, X } from 'lucide-react'
 
 type JdPanelProps = {
   value: string
@@ -44,6 +44,9 @@ type JdPanelProps = {
   onApplyCvEdit: (blockId: string, text: string) => Promise<void>
   stories: CvStory[]
   onSaveStory: (story: CvStory) => void
+  assistantOpen: boolean
+  onAssistantOpen: () => void
+  onAssistantClose: () => void
   onChange: (value: string) => void
   onLoadSample: () => string
   initialClassification?: ClassificationResult | null
@@ -94,6 +97,9 @@ export function JdPanel({
   onApplyCvEdit,
   stories,
   onSaveStory,
+  assistantOpen,
+  onAssistantOpen,
+  onAssistantClose,
   onChange,
   onLoadSample,
   initialClassification = null,
@@ -121,7 +127,6 @@ export function JdPanel({
   const [profile, setProfile] = useState<ResearchResult | null>(null)
   const [researchStatus, setResearchStatus] = useState<ResearchStatus>('idle')
   const [researchError, setResearchError] = useState('')
-  const [assistantOpen, setAssistantOpen] = useState(false)
   const [assistantGap, setAssistantGap] = useState<FitGap | null>(null)
 
   useEffect(() => {
@@ -210,7 +215,12 @@ export function JdPanel({
 
   function openAssistant(gap?: FitGap) {
     setAssistantGap(gap ?? fitGaps[0] ?? null)
-    setAssistantOpen(true)
+    onAssistantOpen()
+  }
+
+  function closeAssistant() {
+    setAssistantGap(null)
+    onAssistantClose()
   }
 
   // Leaving the panel must not leave a request running.
@@ -705,20 +715,9 @@ export function JdPanel({
         </div>
       ) : null}
 
-      {result && !assistantOpen ? (
-        <Button
-          size="sm"
-          className="fixed right-4 bottom-4 z-30 gap-1.5 bg-brand-600 shadow-[0_10px_30px_-12px_rgba(35,71,230,0.7)] max-sm:h-11"
-          onClick={() => openAssistant()}
-        >
-          <Sparkles />
-          Improve CV
-        </Button>
-      ) : null}
-
       <CvAssistant
         open={assistantOpen}
-        onClose={() => setAssistantOpen(false)}
+        onClose={closeAssistant}
         docx={docx}
         cv={cvClassification}
         cvStatus={cvStatus}
