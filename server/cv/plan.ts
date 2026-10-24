@@ -191,7 +191,8 @@ export async function planCv(
   if (edits.length === 0) {
     return {
       type: 'no-fit',
-      reason: 'The model did not return a usable set of edits. Try again with a shorter, more concrete description.',
+      reason:
+        'Add one concrete detail about what you built, the tool you used or the outcome. The replacement has to fill the original line without changing the layout.',
     }
   }
 
