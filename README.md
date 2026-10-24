@@ -46,12 +46,15 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 - **DOCX under the hood** — the source is the editable document, not the PDF.
   `/api/cv/edit` replaces anchored text while preserving the original run
   formatting (font, size, weight), then re-renders. `/api/cv/classify` extracts
-  contact, summary, roles, bullets, education, projects and skills, with an
-  anchor back to every editable field. Classification sends block text to
-  Cloudflare; it is not cached. Direct typing on the paper is still not
-  available.
-- **CV assistant** — open it from **Improve CV** or a gap chip, pick a gap and a
-  role, and describe what you actually did. Gemma condenses that fact into one
+  contact, summary, roles, bullets, education and skills with an anchor back to
+  every editable field. The default read is structural: rules parse the DOCX
+  blocks and Clef-flash labels only the ambiguous ones, so it takes about a
+  second and generates no text. `?mode=deep` is a manual Gemma read for unusual
+  layouts. Classification sends block text to Cloudflare; it is not cached.
+  Direct typing on the paper is still not available.
+- **CV assistant** — open it from **Improve CV** or a gap chip. The CV read is
+  fast (rules + Clef) with a manual **Deep read** fallback for unusual layouts.
+  Pick a gap and a role, and describe what you actually did. Gemma condenses that fact into one
   bullet; it never invents a tool, metric or employer. Caddie replaces the least
   JD-relevant bullet in that role, but only if the re-rendered CV keeps the same
   page and line count. The change applies only after you approve the diff.

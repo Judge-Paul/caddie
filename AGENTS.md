@@ -224,13 +224,21 @@ DOCX is the editable source; the PDF is a rendering of it.
   out of the paper until the UI is designed; the API exists for agents.
 - `shared/cv-classification.ts` is the CV contract. Every field carries an
   anchor (`{ blockId, find }`) back to the DOCX, so a future JD-fit pass can say
-  "change role 2's title" and apply it without guessing. The model reads
-  numbered blocks; the normaliser rejects anchors that do not point at real
-  text.
+  "change role 2's title" and apply it without guessing. The normaliser rejects
+  anchors that do not point at real text.
+- **The default read is structural, not generative.** Rules parse headings,
+  date ranges, list paragraphs, contact details, education and skills from the
+  DOCX blocks; Clef-flash labels only the blocks the rules cannot classify. That
+  is ~1-2s, uses no generated tokens, and is the default for
+  `POST /api/cv/classify`. The fast pass covers contact, summary, roles, bullets,
+  skills and education; projects, languages and certifications are deferred.
+- **`?mode=deep` is the manual fallback.** It runs the whole-CV Gemma extraction
+  with a 120s timeout for unusual layouts. The assistant exposes it as a
+  **Deep read** action; never run it automatically.
 - CV classification is not cached. The extracted CV is personal data, so the
   server keeps it only in memory for the request; the caller receives it and the
-  DOCX remains in IndexedDB. The block text is sent to Cloudflare for extraction,
-  like the posting; the CV is never sent to Browserbase.
+  DOCX remains in IndexedDB. The block text is sent to Cloudflare (Clef, or
+  Gemma for a deep read), like the posting; the CV is never sent to Browserbase.
 - Cloudflare transport failures are retried once (as are 429/5xx responses) and
   logged server-side. CVs over 80k characters get a clear "too much text" error
   instead of an opaque model failure.
@@ -300,8 +308,8 @@ LibreOffice, JD paste/review with classification-backed coverage (red missing
 must-haves, amber "worth showing" signals), coverage ring/bar, gap chips, a
 Clef-flash non-JD guard, JD classification into structured data (Data tab,
 Gemma via the Bun server), company research through Browserbase, an anchored
-DOCX edit API, CV classification, a CV fit assistant with a local story profile,
-and an eval harness.
+DOCX edit API, a fast structural CV read with a manual Gemma deep read, a CV
+fit assistant with a local story profile, and an eval harness.
 
 Not built yet: a server-backed managed profile/accounts, direct text editing on
 the paper, multi-bullet or role-title rewrites, applying a whole fit plan,
