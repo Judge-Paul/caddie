@@ -1,8 +1,17 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 
 import type { ClassifyModel } from '../shared/jd-classification'
 import { classifyJd } from './classify'
 import { CloudflareError } from './cloudflare'
+import {
+  DocxError,
+  MAX_DOCX_BYTES,
+  editDocx,
+  parseDocx,
+} from './cv/docx'
+import { CvClassifyError, classifyCvDocx } from './cv/classify'
+import { RenderError, renderDocxToPdf } from './cv/render'
 import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
 import { researchCompany } from './research'
@@ -107,6 +116,133 @@ app.post('/api/research', async (c) => {
       { error: error instanceof Error ? error.message : 'Company research failed.' },
       500,
     )
+  }
+})
+
+async function readDocxBytes(c: Context) {
+  const type = c.req.header('content-type') ?? ''
+  if (!/wordprocessingml|octet-stream/i.test(type)) {
+    throw new DocxError('Upload a DOCX file.', 415)
+  }
+
+  const length = Number(c.req.header('content-length') ?? 0)
+  if (Number.isFinite(length) && length > MAX_DOCX_BYTES) {
+    throw new DocxError('That DOCX is larger than 15 MB.', 413)
+  }
+
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+  if (bytes.byteLength === 0) throw new DocxError('That DOCX is empty.', 400)
+  if (bytes.byteLength > MAX_DOCX_BYTES) {
+    throw new DocxError('That DOCX is larger than 15 MB.', 413)
+  }
+
+  return bytes
+}
+
+function cvFailure(c: Context, error: unknown) {
+  if (error instanceof ConfigError) {
+    return c.json({ error: error.message }, 503)
+  }
+  if (error instanceof CvClassifyError) {
+    return c.json({ error: error.message }, 422)
+  }
+  if (error instanceof DocxError || error instanceof RenderError) {
+    const status = error.status as 400 | 413 | 415 | 422 | 500
+    return c.json({ error: error.message }, status)
+  }
+
+  return c.json(
+    { error: error instanceof Error ? error.message : 'Could not process that CV.' },
+    500,
+  )
+}
+
+app.post('/api/cv/convert', async (c) => {
+  try {
+    const docx = await readDocxBytes(c)
+    const pdf = await renderDocxToPdf(docx)
+    const bytes = new Uint8Array(pdf.byteLength)
+    bytes.set(pdf)
+
+    return c.body(bytes, 200, {
+      'Content-Type': 'application/pdf',
+      'Cache-Control': 'no-store',
+      'Content-Disposition': 'inline; filename="cv.pdf"',
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/cv/parse', async (c) => {
+  try {
+    const docx = await readDocxBytes(c)
+    const blocks = await parseDocx(docx)
+    return c.json({ blocks })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/cv/edit', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    docx?: unknown
+    edits?: unknown
+  } | null
+
+  const encoded = typeof body?.docx === 'string' ? body.docx : ''
+  if (!encoded) {
+    return c.json({ error: 'Send the DOCX as base64.' }, 400)
+  }
+  if (encoded.length > MAX_DOCX_BYTES * 1.4) {
+    return c.json({ error: 'That DOCX is larger than 15 MB.' }, 413)
+  }
+
+  const edits = Array.isArray(body?.edits)
+    ? body.edits.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return []
+        const record = entry as { blockId?: unknown; text?: unknown; find?: unknown }
+        if (typeof record.blockId !== 'string' || typeof record.text !== 'string') {
+          return []
+        }
+        if (record.text.length > 5_000) return []
+        if (record.find !== undefined && typeof record.find !== 'string') return []
+        if (typeof record.find === 'string' && record.find.length > 200) return []
+        return [
+          {
+            blockId: record.blockId,
+            text: record.text,
+            ...(typeof record.find === 'string' ? { find: record.find } : {}),
+          },
+        ]
+      })
+    : []
+
+  if (edits.length === 0) {
+    return c.json({ error: 'No valid edits were provided.' }, 400)
+  }
+
+  try {
+    const input = Uint8Array.from(Buffer.from(encoded, 'base64'))
+    const edited = await editDocx(input, edits)
+    const pdf = await renderDocxToPdf(edited.docx)
+
+    return c.json({
+      blocks: edited.blocks,
+      docx: Buffer.from(edited.docx).toString('base64'),
+      pdf: Buffer.from(pdf).toString('base64'),
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/cv/classify', async (c) => {
+  try {
+    const docx = await readDocxBytes(c)
+    return c.json(await classifyCvDocx(docx, readConfig()))
+  } catch (error) {
+    return cvFailure(c, error)
   }
 })
 

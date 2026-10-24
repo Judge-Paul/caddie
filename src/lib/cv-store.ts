@@ -1,6 +1,6 @@
 /**
- * The uploaded CV survives a reload. The PDF bytes live in IndexedDB, never on
- * a server; this is local persistence, not an account or a saved upload.
+ * The uploaded CV survives a reload. The source bytes live in IndexedDB, never
+ * in an account or a database; DOCX is also converted for preview.
  */
 
 const DB_NAME = 'caddie'
@@ -8,7 +8,31 @@ const DB_VERSION = 1
 const STORE = 'uploads'
 const CV_KEY = 'cv'
 
-type StoredCv = {
+const PDF_MIME = 'application/pdf'
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+export type StoredCv = {
+  kind: 'pdf' | 'docx'
+  /** The uploaded file, kept as the editable source of truth. */
+  source: File
+  /** DOCX only: the PDF rendered from it. */
+  rendered: File | null
+}
+
+type StoredRecord = {
+  kind: 'pdf' | 'docx'
+  sourceBlob: Blob
+  sourceName: string
+  sourceType: string
+  renderedBlob: Blob | null
+  renderedName: string | null
+  renderedType: string | null
+  updatedAt: number
+}
+
+/** Shape written by the PDF-only version of this store. */
+type LegacyRecord = {
   blob: Blob
   fileName: string
   updatedAt: number
@@ -59,19 +83,52 @@ function runTransaction<T>(
   )
 }
 
-export async function saveCv(file: File): Promise<void> {
-  const record: StoredCv = { blob: file, fileName: file.name, updatedAt: Date.now() }
+export async function saveCv(stored: StoredCv): Promise<void> {
+  const record: StoredRecord = {
+    kind: stored.kind,
+    sourceBlob: stored.source,
+    sourceName: stored.source.name,
+    sourceType: stored.source.type || (stored.kind === 'docx' ? DOCX_MIME : PDF_MIME),
+    renderedBlob: stored.rendered,
+    renderedName: stored.rendered?.name ?? null,
+    renderedType: stored.rendered?.type ?? null,
+    updatedAt: Date.now(),
+  }
+
   await runTransaction('readwrite', (store) => store.put(record, CV_KEY))
 }
 
-export async function readCv(): Promise<File | null> {
-  const record = await runTransaction<StoredCv | undefined>('readonly', (store) =>
-    store.get(CV_KEY) as IDBRequest<StoredCv | undefined>,
+export async function readCv(): Promise<StoredCv | null> {
+  const record = await runTransaction<StoredRecord | LegacyRecord | undefined>(
+    'readonly',
+    (store) => store.get(CV_KEY) as IDBRequest<StoredRecord | LegacyRecord | undefined>,
   )
 
-  if (!record || !(record.blob instanceof Blob)) return null
+  if (!record) return null
 
-  return new File([record.blob], record.fileName, { type: 'application/pdf' })
+  if ('sourceBlob' in record && record.sourceBlob instanceof Blob) {
+    const source = new File([record.sourceBlob], record.sourceName, {
+      type: record.sourceType || (record.kind === 'docx' ? DOCX_MIME : PDF_MIME),
+    })
+    const rendered =
+      record.renderedBlob instanceof Blob && record.renderedName
+        ? new File([record.renderedBlob], record.renderedName, {
+            type: record.renderedType || PDF_MIME,
+          })
+        : null
+
+    return { kind: record.kind, source, rendered }
+  }
+
+  if ('blob' in record && record.blob instanceof Blob) {
+    return {
+      kind: 'pdf',
+      source: new File([record.blob], record.fileName, { type: PDF_MIME }),
+      rendered: null,
+    }
+  }
+
+  return null
 }
 
 export async function clearCv(): Promise<void> {

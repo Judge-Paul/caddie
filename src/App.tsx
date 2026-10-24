@@ -34,9 +34,11 @@ function PaperPlaceholder({ label }: { label?: string }) {
 export default function App() {
   const [jd, setJd] = useState('')
   const [pdf, setPdf] = useState<CvPdf | null>(null)
+  const [docx, setDocx] = useState<File | null>(null)
   const [uploadId, setUploadId] = useState(0)
   const [uploadError, setUploadError] = useState('')
   const [reading, setReading] = useState(false)
+  const [readingLabel, setReadingLabel] = useState('Reading your CV')
   const [restoring, setRestoring] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const paneRef = useRef<HTMLElement>(null)
@@ -59,11 +61,30 @@ export default function App() {
 
     void (async () => {
       try {
-        const file = await readCv()
-        if (!file || cancelled || restoreCancelledRef.current) return
+        const stored = await readCv()
+        if (!stored || cancelled || restoreCancelledRef.current) return
 
         const { loadCvPdf } = await import('@/lib/pdf')
-        const next = await loadCvPdf(file)
+        let renderedFile: File
+
+        if (stored.kind === 'pdf') {
+          renderedFile = stored.source
+        } else if (stored.rendered) {
+          renderedFile = stored.rendered
+        } else {
+          const { convertCvDocx } = await import('@/lib/docx')
+          const blob = await convertCvDocx(stored.source)
+          renderedFile = new File(
+            [blob],
+            stored.source.name.replace(/\.docx$/i, '.pdf'),
+            { type: 'application/pdf' },
+          )
+          void saveCv({ kind: 'docx', source: stored.source, rendered: renderedFile }).catch(
+            () => {},
+          )
+        }
+
+        const next = await loadCvPdf(renderedFile)
 
         if (cancelled || restoreCancelledRef.current) {
           void next.doc.loadingTask.destroy().catch(() => {})
@@ -71,9 +92,13 @@ export default function App() {
         }
 
         setPdf(next)
+        setDocx(stored.kind === 'docx' ? stored.source : null)
         setUploadId((id) => id + 1)
       } catch {
         void clearCv().catch(() => {})
+        if (!cancelled) {
+          setUploadError('The saved CV could not be restored. Upload it again.')
+        }
       } finally {
         if (!cancelled) setRestoring(false)
       }
@@ -91,27 +116,57 @@ export default function App() {
   async function handleFile(file: File | undefined) {
     if (!file) return
 
+    const isDocx =
+      /\.docx$/i.test(file.name) || file.type.includes('wordprocessingml')
+
     restoreCancelledRef.current = true
     setUploadError('')
     setReading(true)
+    setReadingLabel(isDocx ? 'Rendering your CV' : 'Reading your CV')
     const previous = pdf
 
     try {
       const { loadCvPdf } = await import('@/lib/pdf')
-      const next = await loadCvPdf(file)
-      setPdf(next)
-      setUploadId((id) => id + 1)
-      paneRef.current?.scrollTo({ top: 0 })
-      // release the old document once the new one has painted
-      window.setTimeout(() => {
-        void previous?.doc.loadingTask.destroy().catch(() => {})
-      }, 0)
-      void saveCv(file).catch(() => {})
+
+      if (isDocx) {
+        const { convertCvDocx } = await import('@/lib/docx')
+        const renderedBlob = await convertCvDocx(file)
+        const renderedFile = new File(
+          [renderedBlob],
+          file.name.replace(/\.docx$/i, '.pdf'),
+          { type: 'application/pdf' },
+        )
+        const next = await loadCvPdf(renderedFile)
+
+        setPdf(next)
+        setDocx(file)
+        setUploadId((id) => id + 1)
+        paneRef.current?.scrollTo({ top: 0 })
+        window.setTimeout(() => {
+          void previous?.doc.loadingTask.destroy().catch(() => {})
+        }, 0)
+        void saveCv({ kind: 'docx', source: file, rendered: renderedFile }).catch(
+          () => {},
+        )
+      } else {
+        const next = await loadCvPdf(file)
+
+        setPdf(next)
+        setDocx(null)
+        setUploadId((id) => id + 1)
+        paneRef.current?.scrollTo({ top: 0 })
+        window.setTimeout(() => {
+          void previous?.doc.loadingTask.destroy().catch(() => {})
+        }, 0)
+        void saveCv({ kind: 'pdf', source: file, rendered: null }).catch(() => {})
+      }
     } catch (error) {
       setUploadError(
         error instanceof Error && error.name === 'CvPdfError'
           ? error.message
-          : 'That CV could not be read. Try another PDF.',
+          : error instanceof Error && error.message
+            ? error.message
+            : 'That CV could not be read. Try another PDF or DOCX.',
       )
     } finally {
       setReading(false)
@@ -123,12 +178,15 @@ export default function App() {
   function removePdf() {
     restoreCancelledRef.current = true
     setPdf(null)
+    setDocx(null)
     setUploadError('')
     void clearCv().catch(() => {})
   }
 
   const pageLabel = pdf
-    ? `PDF · ${pdf.pageCount} ${pdf.pageCount === 1 ? 'page' : 'pages'}`
+    ? `${docx ? 'DOCX' : 'PDF'} · ${pdf.pageCount} ${
+        pdf.pageCount === 1 ? 'page' : 'pages'
+      }`
     : 'A4 · 1 page'
 
   return (
@@ -192,7 +250,7 @@ export default function App() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/pdf,.pdf"
+              accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
               hidden
               onChange={(event) => {
                 void handleFile(event.target.files?.[0])
@@ -212,12 +270,12 @@ export default function App() {
             {pdf && pdf.text.length === 0 ? (
               <p className="mb-3 flex items-start gap-1.5 text-[11.5px] text-muted-foreground">
                 <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                No selectable text in this PDF, so coverage cannot read it.
+                No selectable text in this CV, so coverage cannot read it.
               </p>
             ) : null}
 
             {reading && !pdf ? (
-              <PaperPlaceholder label="Reading your CV" />
+              <PaperPlaceholder label={readingLabel} />
             ) : restoring && !pdf ? (
               <PaperPlaceholder label="Restoring your CV" />
             ) : pdf ? (
@@ -230,7 +288,9 @@ export default function App() {
 
             <p className="mt-4 truncate text-center text-[11px] text-muted-foreground">
               {pdf
-                ? `${pdf.fileName} · Stays in your browser`
+                ? docx
+                  ? `${docx.name} · DOCX converted on the server`
+                  : `${pdf.fileName} · Stays in your browser`
                 : 'Sample profile · Upload your own CV to match against it.'}
             </p>
           </div>
