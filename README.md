@@ -22,7 +22,9 @@ no setup; the **Data** tab does. Copy `.env.example` to `.env.local` and fill in
 `CF_ACCOUNT_ID` and `CF_API_KEY` for Cloudflare Workers AI (Bun is required for
 the server). Add `BROWSERBASE_API_KEY` to research the company; without it,
 classification and matching still work. DOCX rendering additionally needs
-LibreOffice (`soffice`) on the server path; `SOFFICE_BIN` overrides it.
+LibreOffice (`soffice`) on the server path; `SOFFICE_BIN` overrides it. The fit
+assistant also needs poppler (`pdfinfo` and `pdftotext`) to measure rendered
+lines.
 
 ```bash
 npm run build    # typecheck + production build
@@ -46,7 +48,17 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   formatting (font, size, weight), then re-renders. `/api/cv/classify` extracts
   contact, summary, roles, bullets, education, projects and skills, with an
   anchor back to every editable field. Classification sends block text to
-  Cloudflare; it is not cached, and there is no user-facing editor yet.
+  Cloudflare; it is not cached. Direct typing on the paper is still not
+  available.
+- **CV assistant** — open it from **Improve CV** or a gap chip, pick a gap and a
+  role, and describe what you actually did. Gemma condenses that fact into one
+  bullet; it never invents a tool, metric or employer. Caddie replaces the least
+  JD-relevant bullet in that role, but only if the re-rendered CV keeps the same
+  page and line count. The change applies only after you approve the diff.
+  Confirmed facts are stored in a local profile (IndexedDB) for future postings.
+  `/api/cv/fit` makes the proposal; applying uses the normal DOCX edit API. The
+  fit request carries the CV, JD and relevant stories to the local server and
+  Gemma, and is not cached.
 - **Job description panel** — paste, review, and data modes. A local check plus
   Clef-flash rejects links, CVs and cover letters before Gemma runs. Gemma then
   reads the posting in the background; once it is done, the score and red gaps

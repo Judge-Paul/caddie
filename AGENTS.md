@@ -39,7 +39,8 @@ Company research additionally needs `BROWSERBASE_API_KEY`. Matching works
 without either key; classification does not, and research is skipped without it.
 
 DOCX uploads need LibreOffice (`soffice`) on the server path. Override it with
-`SOFFICE_BIN` if it lives elsewhere.
+`SOFFICE_BIN` if it lives elsewhere. The fit assistant also needs poppler
+(`pdfinfo` and `pdftotext`) to measure rendered lines.
 
 ## Brand
 
@@ -231,6 +232,37 @@ DOCX is the editable source; the PDF is a rendering of it.
   DOCX remains in IndexedDB. The block text is sent to Cloudflare for extraction,
   like the posting; the CV is never sent to Browserbase.
 
+## CV fit assistant and the managed profile
+
+The floating **Improve CV** drawer closes a JD gap with the candidate's own
+evidence. It is not an editor: the paper stays read-only and nothing changes
+until the user approves a diff.
+
+- The user picks a gap and a role, then states the fact in their own words.
+  Gemma may condense it into one past-tense bullet, but it must not invent a
+  tool, metric, employer or outcome. If the fact is too thin, it asks instead.
+- Replacement is deterministic: only existing bullets with a whole-block anchor
+  are targets; bullets that already cover the gap are excluded; the least
+  JD-relevant bullet is proposed, and the bullet text must equal the target
+  block. We never rewrite a line that also contains a date or other field.
+- **Line count is enforced by rendering, not characters.** `server/cv/fit.ts`
+  renders the original and each candidate through LibreOffice, then
+  `server/cv/measure.ts` compares page count and non-empty text lines with
+  poppler. A candidate that changes either is rejected. If no candidate fits,
+  the assistant says so instead of silently pushing the CV to another page.
+- `POST /api/cv/fit` returns a proposal (bullet, target block, rationale,
+  facts used, line/page counts) or a question. Applying is a normal
+  `/api/cv/edit` call after the user approves. There is no auto-apply.
+- Stories are stored locally in IndexedDB (`caddie-profile`): the candidate's
+  own wording, the approved bullet, role, gap and confirmed skills. They are
+  reused for later JDs. This is the local managed profile; there is no server
+  database yet. Do not treat an unapproved draft as a fact.
+- The assistant request carries the CV, JD, gap, role, conversation and relevant
+  stories to the local server and Gemma. Nothing is cached; no CV or story is
+  written to the server's disk.
+- Current scope: one bullet replacement, one fact at a time. Multi-bullet
+  rewrites, role-title changes and applying a whole fit plan are next.
+
 ## UI quality bar
 
 Caddie should look designed, not generated. Two community skills are installed
@@ -265,11 +297,13 @@ LibreOffice, JD paste/review with classification-backed coverage (red missing
 must-haves, amber "worth showing" signals), coverage ring/bar, gap chips, a
 Clef-flash non-JD guard, JD classification into structured data (Data tab,
 Gemma via the Bun server), company research through Browserbase, an anchored
-DOCX edit API, CV classification, and an eval harness.
+DOCX edit API, CV classification, a CV fit assistant with a local story profile,
+and an eval harness.
 
-Not built yet: a user-facing CV editing UI, applying JD-fit suggestions, saving
-classifications, a job library, PDF export, per-line/section analysis, accounts,
-or a database. The uploaded CV alone is restored from IndexedDB on reload. A
-DOCX is sent to the local server for rendering/editing/classification and is
-never stored there. Don't imply anything else persists. Don't imply these exist
-in copy until they do.
+Not built yet: a server-backed managed profile/accounts, direct text editing on
+the paper, multi-bullet or role-title rewrites, applying a whole fit plan,
+saving classifications, a job library, PDF export, per-line/section analysis,
+or a database. The uploaded CV and the local story profile are restored from
+IndexedDB on reload. A DOCX is sent to the local server for rendering, editing,
+classification and fitting and is never stored there. Don't imply anything else
+persists. Don't imply these exist in copy until they do.
