@@ -231,6 +231,9 @@ DOCX is the editable source; the PDF is a rendering of it.
   server keeps it only in memory for the request; the caller receives it and the
   DOCX remains in IndexedDB. The block text is sent to Cloudflare for extraction,
   like the posting; the CV is never sent to Browserbase.
+- Cloudflare transport failures are retried once (as are 429/5xx responses) and
+  logged server-side. CVs over 80k characters get a clear "too much text" error
+  instead of an opaque model failure.
 
 ## CV fit assistant and the managed profile
 

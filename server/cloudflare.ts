@@ -2,6 +2,12 @@ import type { ServerConfig } from './env'
 
 const API_ROOT = 'https://api.cloudflare.com/client/v4/accounts'
 const REQUEST_TIMEOUT_MS = 60_000
+const MAX_TRANSPORT_ATTEMPTS = 2
+const RETRY_DELAY_MS = 500
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 export class CloudflareError extends Error {
   readonly status: number
@@ -38,37 +44,72 @@ async function postJson<T>(
   config: ServerConfig,
   body: unknown,
 ): Promise<T> {
-  let response: Response
+  for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt += 1) {
+    let response: Response
 
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-  } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') {
-      throw new CloudflareError('The model took too long to answer. Try again.', 504)
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+    } catch (error) {
+      const name = error instanceof Error ? error.name : ''
+
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        throw new CloudflareError(
+          'The model took too long to answer. Try again.',
+          504,
+        )
+      }
+
+      console.error(
+        `[cloudflare] transport failure (attempt ${attempt}/${MAX_TRANSPORT_ATTEMPTS})`,
+        error instanceof Error
+          ? { name: error.name, cause: error.cause }
+          : error,
+      )
+
+      if (attempt < MAX_TRANSPORT_ATTEMPTS) {
+        await sleep(RETRY_DELAY_MS * attempt)
+        continue
+      }
+
+      throw new CloudflareError('Could not reach Cloudflare Workers AI.', 502)
     }
-    throw new CloudflareError('Could not reach Cloudflare Workers AI.', 502)
+
+    // Retry a rate limit or server error once. Client and auth errors do not
+    // improve on a retry.
+    if (
+      (response.status === 429 || response.status >= 500) &&
+      attempt < MAX_TRANSPORT_ATTEMPTS
+    ) {
+      console.error(
+        `[cloudflare] retrying HTTP ${response.status} (attempt ${attempt}/${MAX_TRANSPORT_ATTEMPTS})`,
+      )
+      await sleep(RETRY_DELAY_MS * attempt)
+      continue
+    }
+
+    const payload = (await response.json().catch(() => null)) as Envelope<T> | null
+
+    if (!payload) {
+      throw new CloudflareError('Cloudflare returned an unreadable response.', 502)
+    }
+
+    if (payload.success === false || payload.result === undefined) {
+      const detail = payload.errors?.[0]?.message ?? `Request failed (${response.status}).`
+      throw new CloudflareError(friendlyMessage(detail, response.status), 502)
+    }
+
+    return payload.result
   }
 
-  const payload = (await response.json().catch(() => null)) as Envelope<T> | null
-
-  if (!payload) {
-    throw new CloudflareError('Cloudflare returned an unreadable response.', 502)
-  }
-
-  if (payload.success === false || payload.result === undefined) {
-    const detail = payload.errors?.[0]?.message ?? `Request failed (${response.status}).`
-    throw new CloudflareError(friendlyMessage(detail, response.status), 502)
-  }
-
-  return payload.result
+  throw new CloudflareError('Could not reach Cloudflare Workers AI.', 502)
 }
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }

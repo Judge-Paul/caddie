@@ -10,6 +10,7 @@ import { cvMessages, repairCvMessages } from './prompt'
 
 const MAX_ATTEMPTS = 2
 const MAX_TOKENS = 3_000
+const MAX_CV_TEXT_CHARS = 80_000
 
 export class CvClassifyError extends Error {
   readonly status = 422
@@ -29,9 +30,19 @@ export async function classifyCvDocx(
   config: ServerConfig,
 ): Promise<CvClassificationResponse> {
   const blocks = await parseDocx(input)
-  if (blocks.every((block) => !block.text)) {
+  const textLength = blocks.reduce((total, block) => total + block.text.length, 0)
+
+  if (textLength === 0) {
     throw new CvClassifyError('No text was found in this CV.')
   }
+
+  if (textLength > MAX_CV_TEXT_CHARS) {
+    throw new CvClassifyError(
+      'This CV has more text than the assistant can read in one pass. Try a shorter CV.',
+    )
+  }
+
+  console.info(`[cv-classify] ${blocks.length} blocks, ${textLength} text chars`)
 
   const started = performance.now()
   let lastReply = ''
@@ -44,6 +55,12 @@ export async function classifyCvDocx(
         attempt === 1 ? cvMessages(blocks) : repairCvMessages(blocks, lastReply),
       maxTokens: MAX_TOKENS,
       temperature: 0,
+    }).catch((error) => {
+      console.error(
+        '[cv-classify] model call failed',
+        error instanceof Error ? error.message : error,
+      )
+      throw error
     })
     usage = result.usage ?? usage
     lastReply = result.text
