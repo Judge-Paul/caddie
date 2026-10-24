@@ -661,7 +661,12 @@ app.post('/api/applications/:id/compose', async (c) => {
   try {
     const session = c.get('session')
     return c.json(
-      await composeApplication(session.user.id, c.req.param('id'), kind as ComposeKind),
+      await composeApplication(
+        session.user.id,
+        c.req.param('id'),
+        kind as ComposeKind,
+        session.user.name ?? null,
+      ),
     )
   } catch (error) {
     return cvFailure(c, error)
