@@ -395,7 +395,7 @@ nothing changes until the user approves a diff.
   the expected JSON shape, known block IDs and bounded strings. An injected
   instruction cannot become a tool call or a free-form response.
 - **Token budgets are part of the contract.** The planner sends at most 8 roles,
-  16 role bullets per role, 10 projects, 16 gaps, 10 target blocks, 6 stories and
+  16 role bullets per role, 10 projects, 16 gaps, 24 target blocks, 6 stories and
   6 history turns; each field has a character cap. Composition sends at most
   10k CV characters and 8 stories. Do not add unbounded prompt sections; trim
   before adding.

@@ -50,7 +50,7 @@ function roleLabel(target: CvMapTarget, map: CvMap) {
   return project?.name ?? 'Project'
 }
 
-function mapLines(map: CvMap) {
+function mapLines(map: CvMap, protectedBlockIds: Set<string>) {
   const lines: string[] = []
 
   for (const role of map.roles.slice(0, 8)) {
@@ -58,17 +58,26 @@ function mapLines(map: CvMap) {
       `ROLE ${role.id}: ${[role.company, role.title].filter(Boolean).join(' / ') || 'Untitled role'} (${role.dates ?? 'dates unknown'})`,
     )
     for (const bullet of role.bullets.slice(0, 16)) {
-      if (bullet.blockId) lines.push(`  ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
+      if (!bullet.blockId) lines.push(`  (unanchored) ${bullet.text.slice(0, 180)}`)
+      else if (protectedBlockIds.has(bullet.blockId)) lines.push(`  (protected) ${bullet.text.slice(0, 180)}`)
+      else lines.push(`  ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
     }
     for (const project of role.projects.slice(0, 10)) {
       lines.push(
         `  PROJECT ${project.id}: ${project.name ?? 'Untitled project'} [${project.kind}]${project.product ? ` — ${project.product.slice(0, 120)}` : ''}`,
       )
       if (project.descriptionTarget?.blockId) {
-        lines.push(`    ${project.descriptionTarget.blockId}: ${project.descriptionTarget.text.slice(0, 180)}`)
+        const blockId = project.descriptionTarget.blockId
+        lines.push(
+          protectedBlockIds.has(blockId)
+            ? `    (protected) ${project.descriptionTarget.text.slice(0, 180)}`
+            : `    ${blockId}: ${project.descriptionTarget.text.slice(0, 180)}`,
+        )
       }
       for (const bullet of project.bullets.slice(0, 8)) {
-        if (bullet.blockId) lines.push(`    ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
+        if (!bullet.blockId) lines.push(`    (unanchored) ${bullet.text.slice(0, 180)}`)
+        else if (protectedBlockIds.has(bullet.blockId)) lines.push(`    (protected) ${bullet.text.slice(0, 180)}`)
+        else lines.push(`    ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
       }
     }
   }
@@ -78,10 +87,17 @@ function mapLines(map: CvMap) {
       `PROJECT ${project.id}: ${project.name ?? 'Untitled project'} [${project.kind}]${project.product ? ` — ${project.product.slice(0, 120)}` : ''}`,
     )
     if (project.descriptionTarget?.blockId) {
-      lines.push(`  ${project.descriptionTarget.blockId}: ${project.descriptionTarget.text.slice(0, 180)}`)
+      const blockId = project.descriptionTarget.blockId
+      lines.push(
+        protectedBlockIds.has(blockId)
+          ? `  (protected) ${project.descriptionTarget.text.slice(0, 180)}`
+          : `  ${blockId}: ${project.descriptionTarget.text.slice(0, 180)}`,
+      )
     }
     for (const bullet of project.bullets.slice(0, 8)) {
-      if (bullet.blockId) lines.push(`  ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
+      if (!bullet.blockId) lines.push(`  (unanchored) ${bullet.text.slice(0, 180)}`)
+      else if (protectedBlockIds.has(bullet.blockId)) lines.push(`  (protected) ${bullet.text.slice(0, 180)}`)
+      else lines.push(`  ${bullet.blockId}: ${bullet.text.slice(0, 180)}`)
     }
   }
 
@@ -117,7 +133,7 @@ function historyLines(history: FitMessage[]) {
 
 function candidateLines(candidates: CvTargetAudit[], map: CvMap) {
   return candidates
-    .slice(0, 10)
+    .slice(0, 24)
     .map((entry) => {
       const flags = [
         entry.target.kind,
@@ -127,7 +143,7 @@ function candidateLines(candidates: CvTargetAudit[], map: CvMap) {
       ]
         .filter(Boolean)
         .join(', ')
-      return `- ${entry.target.blockId} | ${flags} | ${roleLabel(entry.target, map)} | min ${Math.floor(entry.target.text.length * 0.9)} / max ${Math.min(240, entry.target.text.length)} chars | ${entry.target.text.slice(0, 180)}`
+      return `- ${entry.target.blockId} | ${flags} | ${roleLabel(entry.target, map)} | min ${Math.floor(entry.target.text.length * 0.7)} / max ${Math.min(240, entry.target.text.length)} chars | ${entry.target.text.slice(0, 180)}`
     })
     .join('\n')
 }
@@ -141,6 +157,7 @@ export function planMessages(input: {
   history: FitMessage[]
   stories: CvStory[]
   candidates: CvTargetAudit[]
+  protectedBlockIds: string[]
 }): ChatMessage[] {
   const jd = input.jd
   return [
@@ -154,7 +171,7 @@ Company research: ${input.company?.summary || 'none'}`, 3_000)}
 
 ${untrusted('missing_skills', gapLines(input.gaps) || '(none listed)', 3_000)}
 
-${untrusted('cv_map', mapLines(input.map), 8_000)}
+${untrusted('cv_map', mapLines(input.map, new Set(input.protectedBlockIds)), 8_000)}
 
 ${untrusted('targets', candidateLines(input.candidates, input.map) || '(none)', 5_000)}
 

@@ -14,7 +14,7 @@ import { planMessages } from './plan-prompt'
 
 const MAX_EDITS = 3
 const MAX_BULLET_CHARS = 240
-const MAX_TARGETS = 14
+const MAX_TARGETS = 24
 const MAX_ATTEMPTS = 2
 
 type GeneratedEdit = {
@@ -72,7 +72,7 @@ function parseEdits(
     const bullet = text(item.text, MAX_BULLET_CHARS)
     if (!blockId || !bullet || seen.has(blockId) || !targets.has(blockId)) continue
     const target = targets.get(blockId)!.target
-    const minChars = Math.max(30, Math.floor(target.text.length * 0.9))
+    const minChars = Math.max(30, Math.floor(target.text.length * 0.7))
     if (bullet.length < minChars) continue
     seen.add(blockId)
     edits.push({
@@ -110,12 +110,30 @@ export async function planCv(
   const map = buildCvMap(input.cv)
   const audit = auditCv(map, input.jd.requirements)
   const excluded = new Set(input.excludeBlockIds ?? [])
-  const candidates = audit.swapTargets
-    .filter((entry) => !excluded.has(entry.target.blockId as string))
-    .slice(0, MAX_TARGETS)
+  const eligible = audit.swapTargets.filter(
+    (entry) => !excluded.has(entry.target.blockId as string),
+  )
+  const groups = new Map<string, CvTargetAudit[]>()
+  for (const entry of eligible) {
+    const key = entry.target.roleId ?? entry.target.projectId ?? 'orphan'
+    groups.set(key, [...(groups.get(key) ?? []), entry])
+  }
+  const candidates: CvTargetAudit[] = []
+  for (let index = 0; candidates.length < MAX_TARGETS; index += 1) {
+    let added = false
+    for (const group of groups.values()) {
+      const entry = group[index]
+      if (!entry) continue
+      candidates.push(entry)
+      added = true
+      if (candidates.length >= MAX_TARGETS) break
+    }
+    if (!added) break
+  }
   const targetMap = new Map<string, CvTargetAudit>(
     candidates.map((entry) => [entry.target.blockId as string, entry]),
   )
+
 
   if (candidates.length === 0) {
     return {
@@ -129,37 +147,31 @@ export async function planCv(
   let question = ''
   let noFit = ''
 
+  const baseMessages = planMessages({
+    map,
+    jd: input.jd,
+    company: input.company ?? null,
+    gaps: input.gaps,
+    message: input.message,
+    history: input.history ?? [],
+    stories: input.stories ?? [],
+    candidates,
+    protectedBlockIds: audit.protectedBlockIds,
+  })
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const result = await runChat(config, {
       model: config.gemmaModel,
       messages:
         attempt === 1
-          ? planMessages({
-              map,
-              jd: input.jd,
-              company: input.company ?? null,
-              gaps: input.gaps,
-              message: input.message,
-              history: input.history ?? [],
-              stories: input.stories ?? [],
-              candidates,
-            })
+          ? baseMessages
           : [
-              ...planMessages({
-                map,
-                jd: input.jd,
-                company: input.company ?? null,
-                gaps: input.gaps,
-                message: input.message,
-                history: input.history ?? [],
-                stories: input.stories ?? [],
-                candidates,
-              }),
+              ...baseMessages,
               { role: 'assistant' as const, content: reply.slice(0, 3000) },
               {
                 role: 'user' as const,
                 content:
-                  'That reply was not one usable JSON plan or question. Return only the requested JSON object.',
+                  'The target list is complete: every editable, non-protected bullet for every role and project is listed. Protected blocks have no block ID in the CV map. Do not refuse because a protected or absent block is unavailable; choose a listed target, ask one question, or return a no-fit only if the listed targets genuinely cannot hold the evidence. Return only the requested JSON object.',
               },
             ],
       maxTokens: 1000,
@@ -177,6 +189,7 @@ export async function planCv(
       }
       if (record.type === 'no-fit') {
         noFit = text(record.reason, 400)
+        if (attempt < MAX_ATTEMPTS) continue
         break
       }
       edits = parseEdits(record, targetMap)
