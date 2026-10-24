@@ -14,6 +14,8 @@ behave, so the product stays coherent no matter which agent works on it next.
   `npx shadcn@latest add <name>`; they land in `src/components/ui/`
 - `lucide-react` icons, Geist + Newsreader variable fonts via Fontsource
 - `pdfjs-dist` (legacy build) for uploaded CVs — canvas artwork plus a text layer
+- LibreOffice headless for DOCX → PDF rendering; `jszip` + `@xmldom/xmldom` for
+  anchored DOCX text edits
 - Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
   (Gemma for extraction, Clef-flash as the paste guard)
 - Browserbase Search + Fetch for company research, extracted against a JSON schema
@@ -35,6 +37,9 @@ The classifier needs Cloudflare credentials. Copy `.env.example` to `.env.local`
 and fill in `CF_ACCOUNT_ID` and `CF_API_KEY`; never prefix them with `VITE_`.
 Company research additionally needs `BROWSERBASE_API_KEY`. Matching works
 without either key; classification does not, and research is skipped without it.
+
+DOCX uploads need LibreOffice (`soffice`) on the server path. Override it with
+`SOFFICE_BIN` if it lives elsewhere.
 
 ## Brand
 
@@ -111,9 +116,15 @@ entrance animations on load, no bouncing.
   crop or letterbox a page. pdf.js's text layer sits over each canvas so text
   can be selected and copied; keep it, and keep the toolbar arrows working at
   every width (sticky at the bottom of the pane, hidden for a single page).
+- **An uploaded DOCX is rendered to PDF server-side** by LibreOffice, then shown
+  through the same viewer. Margins, styles, tables and installed fonts come from
+  the renderer; a font missing on the server is substituted. The source DOCX is
+  kept in IndexedDB so it can be edited and re-rendered.
 - The last upload is restored from IndexedDB on load (`src/lib/cv-store.ts`).
-  It is local persistence only — no account, no server copy.
-- The CV is read-only for now. Do not add editing affordances to the paper.
+  PDF sources stay in the browser. DOCX sources are sent to the local server for
+  rendering, editing and classification, never stored there. There is no account.
+- The paper is read-only in the UI. Text changes happen only through the DOCX
+  edit API; do not add editable affordances to the rendered paper.
 
 ## How matching works
 
@@ -191,6 +202,35 @@ that `src/lib/match.ts` scores against the CV.
 - If a new field is worth showing, add it to the shared type, the normaliser and
   the prompt together. Never invent a field in the renderer.
 
+## DOCX CVs and anchored edits
+
+DOCX is the editable source; the PDF is a rendering of it.
+
+- `server/cv/docx.ts` opens the zip, rejects macros, ActiveX and embedded OLE,
+  and maps every body paragraph to a stable block id (`p:12`) with text, style
+  and list/table flags. `word/document.xml` is the only part rewritten.
+- `server/cv/render.ts` runs LibreOffice headless with a per-job profile. It is
+  not Word: line breaks can differ, and fonts not installed on the server are
+  substituted. Carlito/Caladea/Liberation are the sensible base; a DOCX that
+  embeds its fonts may render closer.
+- Edits are `{ blockId, find?, text }`. `find` replaces a substring (a role
+  title inside a line that also holds dates); omitting it replaces the whole
+  block. The first affected run keeps its `w:rPr`, so the same font, size and
+  weight survive; the rest of the paragraph is left intact.
+- `POST /api/cv/convert` returns a PDF, `POST /api/cv/parse` returns blocks,
+  `POST /api/cv/edit` returns edited DOCX + PDF + blocks as base64, and
+  `POST /api/cv/classify` returns the structured CV. Keep user-facing editing
+  out of the paper until the UI is designed; the API exists for agents.
+- `shared/cv-classification.ts` is the CV contract. Every field carries an
+  anchor (`{ blockId, find }`) back to the DOCX, so a future JD-fit pass can say
+  "change role 2's title" and apply it without guessing. The model reads
+  numbered blocks; the normaliser rejects anchors that do not point at real
+  text.
+- CV classification is not cached. The extracted CV is personal data, so the
+  server keeps it only in memory for the request; the caller receives it and the
+  DOCX remains in IndexedDB. The block text is sent to Cloudflare for extraction,
+  like the posting; the CV is never sent to Browserbase.
+
 ## UI quality bar
 
 Caddie should look designed, not generated. Two community skills are installed
@@ -219,14 +259,17 @@ CV measurement, and look at 1440px and 390px widths.
 
 ## Status
 
-Built: brand + tokens, one-page CV preview, PDF CV upload with page-by-page
-viewing and selectable text, JD paste/review with classification-backed
-coverage (red missing must-haves, amber "worth showing" signals), coverage
-ring/bar, gap chips, a Clef-flash non-JD guard, JD classification into
-structured data (Data tab, Gemma via the Bun server), company research through
-Browserbase, and an eval harness.
+Built: brand + tokens, one-page CV preview, PDF and DOCX CV upload with
+page-by-page viewing and selectable text, DOCX-to-PDF rendering through
+LibreOffice, JD paste/review with classification-backed coverage (red missing
+must-haves, amber "worth showing" signals), coverage ring/bar, gap chips, a
+Clef-flash non-JD guard, JD classification into structured data (Data tab,
+Gemma via the Bun server), company research through Browserbase, an anchored
+DOCX edit API, CV classification, and an eval harness.
 
-Not built yet: editing a CV, saving classifications, a job library, PDF export,
-per-line/section analysis, accounts, or a database. The uploaded CV alone is
-restored from IndexedDB on reload; it still never leaves the browser. Don't
-imply anything else persists. Don't imply these exist in copy until they do.
+Not built yet: a user-facing CV editing UI, applying JD-fit suggestions, saving
+classifications, a job library, PDF export, per-line/section analysis, accounts,
+or a database. The uploaded CV alone is restored from IndexedDB on reload. A
+DOCX is sent to the local server for rendering/editing/classification and is
+never stored there. Don't imply anything else persists. Don't imply these exist
+in copy until they do.
