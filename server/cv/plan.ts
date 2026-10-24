@@ -72,7 +72,7 @@ function parseEdits(
     const bullet = text(item.text, MAX_BULLET_CHARS)
     if (!blockId || !bullet || seen.has(blockId) || !targets.has(blockId)) continue
     const target = targets.get(blockId)!.target
-    const minChars = Math.max(30, Math.floor(target.text.length * 0.8))
+    const minChars = Math.max(30, Math.floor(target.text.length * 0.9))
     if (bullet.length < minChars) continue
     seen.add(blockId)
     edits.push({

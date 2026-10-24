@@ -127,7 +127,7 @@ function candidateLines(candidates: CvTargetAudit[], map: CvMap) {
       ]
         .filter(Boolean)
         .join(', ')
-      return `- ${entry.target.blockId} | ${flags} | ${roleLabel(entry.target, map)} | min ${Math.floor(entry.target.text.length * 0.8)} / max ${Math.min(240, entry.target.text.length)} chars | ${entry.target.text.slice(0, 180)}`
+      return `- ${entry.target.blockId} | ${flags} | ${roleLabel(entry.target, map)} | min ${Math.floor(entry.target.text.length * 0.9)} / max ${Math.min(240, entry.target.text.length)} chars | ${entry.target.text.slice(0, 180)}`
     })
     .join('\n')
 }
