@@ -63,6 +63,7 @@ const SECTION_HEADINGS: Record<string, string> = {
   'work experience': 'experience',
   'work history': 'experience',
   'professional experience': 'experience',
+  'professional summary': 'summary',
   career: 'experience',
   education: 'education',
   academic: 'education',
@@ -102,8 +103,29 @@ function clean(value: string) {
   return value.replace(/\s+/g, ' ').trim().replace(/^[\s·|,;—-]+|[\s·|,;—-]+$/g, '')
 }
 
+function headingKey(text: string) {
+  return clean(
+    text
+      .split(/\r?\n/)[0]
+      .replace(/[_—–-]{2,}/g, ' '),
+  ).toLowerCase()
+}
+
 function sectionOf(text: string) {
-  return SECTION_HEADINGS[clean(text).toLowerCase()] ?? null
+  return SECTION_HEADINGS[headingKey(text)] ?? null
+}
+
+function sectionHeadingOf(text: string) {
+  const section = sectionOf(text)
+  if (!section) return null
+  return {
+    section,
+    remainder: text.split(/\r?\n/).slice(1).join('\n').trim(),
+  }
+}
+
+function isDecorative(text: string) {
+  return /^[_—–\-\s]{4,}$/.test(text.trim())
 }
 
 function dateOf(text: string) {
@@ -121,6 +143,8 @@ function deterministicLabel(block: CvBlock): BlockKind {
   if (sectionOf(text)) return 'heading'
 
   if (block.list) return 'bullet'
+
+  if (/^[•▪◦‣·]\s+/.test(text)) return 'bullet'
 
   if (EMAIL.test(text) || PHONE.test(text) || /(?:https?:\/\/|www\.|linkedin\.com|github\.com)/i.test(text)) {
     return 'contact'
@@ -405,6 +429,24 @@ function roleFrom(
   }
 }
 
+function projectUrl(text: string) {
+  const explicit = /(?:https?:\/\/|www\.)[^\s)]+/i.exec(text)?.[0]
+  if (explicit) return explicit
+  const github = /\bgithub\.com\/[^\s)]+/i.exec(text)?.[0]
+  if (github) return github
+  const tokens = text.split(/\s+/)
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index].replace(/[),.;]+$/, '')
+    if (
+      /^[a-z0-9-]+(?:\.[a-z0-9-]+){1,}(?:\/\S*)?$/i.test(token) &&
+      !/\.(js|ts|tsx|jsx|go|py|css|html|md|json)$/i.test(token)
+    ) {
+      return token
+    }
+  }
+  return null
+}
+
 function projectFrom(
   block: CvBlock,
   index: number,
@@ -412,19 +454,35 @@ function projectFrom(
 ): CvProject | null {
   const text = block.text
   const dates = dateOf(text)
+  const url = projectUrl(text)
   let core = clean(dates ? text.replace(dates, ' ') : text)
   if (!core) return null
-
+  if (url) core = clean(core.replace(url, ' '))
   core = core.replace(/^(?:side\s+)?project\s*[:—–-]\s*/i, '')
-  const parts = core.split(/\s*[—–]\s*|\s*:\s+/).map(clean).filter(Boolean)
+
+  const pipe = core.split(/\s*\|\s*/).map(clean).filter(Boolean)
   let name: string | null = null
   let description: string | null = null
+  let tech: string[] = []
 
-  if (parts.length > 1) {
-    name = parts[0]
-    description = clean(parts.slice(1).join(' — '))
+  if (pipe.length > 1) {
+    name = pipe[0]
+    const rest = clean(pipe.slice(1).join(' '))
+    const commaParts = rest.split(',').map(clean).filter(Boolean)
+    const looksLikeTech =
+      commaParts.length >= 2 &&
+      rest.length <= 180 &&
+      commaParts.every((part) => part.length <= 60)
+    if (looksLikeTech) tech = commaParts.slice(0, 12)
+    else description = rest
   } else {
-    name = core
+    const parts = core.split(/\s*[—–]\s*|\s*:\s+/).map(clean).filter(Boolean)
+    if (parts.length > 1) {
+      name = parts[0]
+      description = clean(parts.slice(1).join(' — '))
+    } else {
+      name = core
+    }
   }
 
   if (name && name.length > 120) {
@@ -432,7 +490,6 @@ function projectFrom(
     name = null
   }
 
-  const url = /(?:https?:\/\/|www\.)[^\s)]+/i.exec(text)?.[0] ?? null
   const kind = role
     ? 'work'
     : /open.?source|github/i.test(text)
@@ -452,7 +509,7 @@ function projectFrom(
     kind,
     roleId: role?.id ?? null,
     company: role?.company ?? null,
-    tech: [],
+    tech,
     bullets: [],
     anchors: {
       name: name && text.includes(name) ? { blockId: block.id, find: name } : null,
@@ -462,9 +519,47 @@ function projectFrom(
           : null,
       url: url ? { blockId: block.id, find: url } : null,
       dates: dates ? { blockId: block.id, find: dates } : null,
-      tech: null,
+      tech: tech.length > 0 ? { blockId: block.id, find: pipe.slice(1).join(' | ') } : null,
     },
   }
+}
+
+function companyHeaderFrom(block: CvBlock, index: number): CvRole | null {
+  const text = block.text
+  const dates = dateOf(text)
+  if (!dates) return null
+  const parts = clean(text.replace(dates, ' '))
+    .split(/\s*\|\s*/)
+    .map(clean)
+    .filter(Boolean)
+  const company = parts[0] ?? null
+  if (!company) return null
+
+  return {
+    id: `role-${index + 1}`,
+    company,
+    title: null,
+    dates,
+    location: null,
+    summary: null,
+    bullets: [],
+    anchors: {
+      company: text.includes(company) ? { blockId: block.id, find: company } : null,
+      title: null,
+      dates: { blockId: block.id, find: dates },
+      location: null,
+    },
+  }
+}
+
+function looksLikeCompanyHeader(block: CvBlock) {
+  return (
+    !block.list &&
+    block.bold &&
+    DATE_RANGE.test(block.text) &&
+    !ROLE_WORDS.test(block.text) &&
+    !DEGREE.test(block.text)
+  )
 }
 
 function looksLikeProjectHeader(block: CvBlock, next: CvBlock | undefined) {
@@ -559,17 +654,81 @@ export async function classifyCvDocxFast(
 
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]
-    if (!block.text) continue
+    if (!block.text || isDecorative(block.text)) continue
+
+    const heading = sectionHeadingOf(block.text)
+    if (heading) {
+      section = heading.section
+      currentProject = null
+      if (section === 'projects') sawProjectsSection = true
+      if (section !== 'experience') currentRole = null
+      if (section === 'summary' && heading.remainder && !summarySet) {
+        data.summary = clean(heading.remainder)
+        data.summaryAnchor = { blockId: block.id, find: heading.remainder }
+        summarySet = true
+      }
+      continue
+    }
 
     const label = labels[index] ?? 'other'
 
-    if (label === 'heading') {
-      const next = sectionOf(block.text)
-      if (next) {
-        if (next === 'projects') sawProjectsSection = true
-        section = next
+    if (
+      section === 'experience' &&
+      looksLikeCompanyHeader(block)
+    ) {
+      const role = companyHeaderFrom(block, data.roles.length)
+      if (role) {
+        data.roles.push(role)
+        currentRole = role
         currentProject = null
-        if (next !== 'experience') currentRole = null
+      }
+      continue
+    }
+
+    if (
+      section === 'experience' &&
+      currentRole &&
+      !currentRole.title &&
+      !block.list &&
+      !DATE_RANGE.test(block.text) &&
+      ROLE_WORDS.test(block.text)
+    ) {
+      currentRole.title = block.text
+      currentRole.anchors.title = { blockId: block.id, find: null }
+      continue
+    }
+
+    if (
+      section === 'experience' &&
+      currentRole &&
+      !currentRole.location &&
+      !block.list &&
+      !block.bold &&
+      !DATE_RANGE.test(block.text) &&
+      !ROLE_WORDS.test(block.text) &&
+      block.text.length <= 60
+    ) {
+      currentRole.location = block.text
+      currentRole.anchors.location = { blockId: block.id, find: null }
+      continue
+    }
+
+    if (
+      currentProject &&
+      !block.bold &&
+      !block.list &&
+      !currentProject.description
+    ) {
+      currentProject.description = block.text
+      currentProject.anchors.description = { blockId: block.id, find: null }
+      continue
+    }
+
+    if (section === 'projects' && !block.list && block.bold) {
+      const project = projectFrom(block, data.projects.length, null)
+      if (project) {
+        data.projects.push(project)
+        currentProject = project
       }
       continue
     }
