@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 
+import type { FitRequest } from '../shared/cv-fit'
 import type { ClassifyModel } from '../shared/jd-classification'
 import { classifyJd } from './classify'
 import { CloudflareError } from './cloudflare'
@@ -11,6 +12,8 @@ import {
   parseDocx,
 } from './cv/docx'
 import { CvClassifyError, classifyCvDocx } from './cv/classify'
+import { FitError, proposeCvFit } from './cv/fit'
+import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
 import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
@@ -143,8 +146,17 @@ function cvFailure(c: Context, error: unknown) {
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)
   }
+  if (error instanceof CloudflareError) {
+    return c.json({ error: error.message }, 502)
+  }
   if (error instanceof CvClassifyError) {
     return c.json({ error: error.message }, 422)
+  }
+  if (error instanceof FitError) {
+    return c.json({ error: error.message }, error.status as 400 | 413 | 422)
+  }
+  if (error instanceof MeasureError) {
+    return c.json({ error: error.message }, 500)
   }
   if (error instanceof DocxError || error instanceof RenderError) {
     const status = error.status as 400 | 413 | 415 | 422 | 500
@@ -241,6 +253,37 @@ app.post('/api/cv/classify', async (c) => {
   try {
     const docx = await readDocxBytes(c)
     return c.json(await classifyCvDocx(docx, readConfig()))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/cv/fit', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+
+  if (
+    !body ||
+    typeof body.docx !== 'string' ||
+    typeof body.roleId !== 'string' ||
+    typeof body.cv !== 'object' ||
+    typeof body.jd !== 'object' ||
+    typeof body.gap !== 'object'
+  ) {
+    return c.json({ error: 'Send the DOCX, CV data, JD data, role and gap.' }, 400)
+  }
+
+  const request = {
+    ...body,
+    message: typeof body.message === 'string' ? body.message.slice(0, 2_000) : '',
+    history: Array.isArray(body.history) ? body.history.slice(-8) : [],
+    stories: Array.isArray(body.stories) ? body.stories.slice(0, 10) : [],
+    excludeBlockIds: Array.isArray(body.excludeBlockIds)
+      ? body.excludeBlockIds.filter((id): id is string => typeof id === 'string').slice(0, 20)
+      : [],
+  } as unknown as FitRequest
+
+  try {
+    return c.json(await proposeCvFit(request, readConfig()))
   } catch (error) {
     return cvFailure(c, error)
   }

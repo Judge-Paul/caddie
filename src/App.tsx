@@ -3,12 +3,22 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
 import { CvPreview } from '@/components/cv/cv-preview'
 import { JdPanel } from '@/components/jd/jd-panel'
+import type { CvReadStatus } from '@/components/jd/cv-assistant'
 import { Button } from '@/components/ui/button'
 import { cv } from '@/data/cv'
 import { sampleJd } from '@/data/sample-jd'
 import { flattenCv } from '@/lib/analyze'
 import { clearCv, readCv, saveCv } from '@/lib/cv-store'
+import {
+  DOCX_MIME,
+  classifyCvDocx,
+  convertCvDocx,
+  editCvDocx,
+} from '@/lib/docx'
 import type { CvPdf } from '@/lib/pdf'
+import { listStories, saveStory as persistStory } from '@/lib/profile-store'
+import type { CvClassification } from '@shared/cv-classification'
+import type { CvStory } from '@shared/cv-fit'
 import { AlertCircle, LoaderCircle, Lock, Upload, X } from 'lucide-react'
 
 const sampleCvText = flattenCv(cv)
@@ -40,9 +50,14 @@ export default function App() {
   const [reading, setReading] = useState(false)
   const [readingLabel, setReadingLabel] = useState('Reading your CV')
   const [restoring, setRestoring] = useState(true)
+  const [cvClassification, setCvClassification] = useState<CvClassification | null>(null)
+  const [cvStatus, setCvStatus] = useState<CvReadStatus>('idle')
+  const [cvError, setCvError] = useState('')
+  const [stories, setStories] = useState<CvStory[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const paneRef = useRef<HTMLElement>(null)
   const restoreCancelledRef = useRef(false)
+  const cvRequestRef = useRef<AbortController | null>(null)
 
   // An uploaded CV replaces the sample as the side the matcher reads.
   const cvText = pdf ? pdf.text : sampleCvText
@@ -72,7 +87,6 @@ export default function App() {
         } else if (stored.rendered) {
           renderedFile = stored.rendered
         } else {
-          const { convertCvDocx } = await import('@/lib/docx')
           const blob = await convertCvDocx(stored.source)
           renderedFile = new File(
             [blob],
@@ -109,6 +123,102 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    void listStories()
+      .then((loaded) => {
+        if (!cancelled) setStories(loaded)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      cvRequestRef.current?.abort()
+    },
+    [],
+  )
+
+  function resetCvClassification() {
+    cvRequestRef.current?.abort()
+    cvRequestRef.current = null
+    setCvClassification(null)
+    setCvStatus('idle')
+    setCvError('')
+  }
+
+  async function classifyCv() {
+    if (!docx || cvStatus === 'loading' || cvClassification) return
+
+    cvRequestRef.current?.abort()
+    const controller = new AbortController()
+    cvRequestRef.current = controller
+    setCvStatus('loading')
+    setCvError('')
+
+    try {
+      const result = await classifyCvDocx(docx, controller.signal)
+      if (controller.signal.aborted) return
+      setCvClassification(result.data)
+      setCvStatus('ready')
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setCvError(
+        error instanceof Error ? error.message : 'That CV could not be read.',
+      )
+      setCvStatus('error')
+    } finally {
+      if (cvRequestRef.current === controller) cvRequestRef.current = null
+    }
+  }
+
+  async function applyCvEdit(blockId: string, text: string) {
+    if (!docx) throw new Error('Upload a DOCX to edit your CV.')
+
+    const result = await editCvDocx(docx, [{ blockId, text }])
+    const source = new File([result.docx], docx.name, { type: DOCX_MIME })
+    const rendered = new File(
+      [result.pdf],
+      docx.name.replace(/\.docx$/i, '.pdf'),
+      { type: 'application/pdf' },
+    )
+    const { loadCvPdf } = await import('@/lib/pdf')
+    const next = await loadCvPdf(rendered)
+
+    setPdf(next)
+    setDocx(source)
+    setUploadId((id) => id + 1)
+    await saveCv({ kind: 'docx', source, rendered }).catch(() => {})
+
+    setCvClassification((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        roles: current.roles.map((role) => ({
+          ...role,
+          bullets: role.bullets.map((bullet) =>
+            bullet.anchor?.blockId === blockId
+              ? { ...bullet, text }
+              : bullet,
+          ),
+        })),
+      }
+    })
+  }
+
+  function handleSaveStory(story: CvStory) {
+    setStories((current) => [
+      story,
+      ...current.filter((entry) => entry.id !== story.id),
+    ])
+    void persistStory(story).catch(() => {})
+  }
+
   function openPicker() {
     fileInputRef.current?.click()
   }
@@ -119,6 +229,7 @@ export default function App() {
     const isDocx =
       /\.docx$/i.test(file.name) || file.type.includes('wordprocessingml')
 
+    resetCvClassification()
     restoreCancelledRef.current = true
     setUploadError('')
     setReading(true)
@@ -129,7 +240,6 @@ export default function App() {
       const { loadCvPdf } = await import('@/lib/pdf')
 
       if (isDocx) {
-        const { convertCvDocx } = await import('@/lib/docx')
         const renderedBlob = await convertCvDocx(file)
         const renderedFile = new File(
           [renderedBlob],
@@ -177,6 +287,7 @@ export default function App() {
 
   function removePdf() {
     restoreCancelledRef.current = true
+    resetCvClassification()
     setPdf(null)
     setDocx(null)
     setUploadError('')
@@ -300,6 +411,14 @@ export default function App() {
           <JdPanel
             value={jd}
             cvText={cvText}
+            cvClassification={cvClassification}
+            cvStatus={cvStatus}
+            cvError={cvError}
+            docx={docx}
+            onClassifyCv={() => void classifyCv()}
+            onApplyCvEdit={applyCvEdit}
+            stories={stories}
+            onSaveStory={handleSaveStory}
             onChange={setJd}
             onLoadSample={() => {
               setJd(sampleJd)

@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import { CoverageRing } from '@/components/coverage-ring'
+import { CvAssistant, type CvReadStatus } from '@/components/jd/cv-assistant'
 import {
   JdData,
   type ClassifyStatus,
@@ -19,6 +20,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { classifyJd, ClassifyError } from '@/lib/classify'
 import { scoreRequirements } from '@/lib/match'
 import { researchCompany } from '@/lib/research'
+import type { CvClassification } from '@shared/cv-classification'
+import type { CvStory, FitGap } from '@shared/cv-fit'
 import type {
   ClassificationResult,
   ResearchResult,
@@ -26,11 +29,19 @@ import type {
 } from '@shared/jd-classification'
 import { guardJd, NOT_JD_MESSAGE } from '@shared/jd-guard'
 import { cn } from 'cn'
-import { AlertCircle, ClipboardPaste, LoaderCircle, X } from 'lucide-react'
+import { AlertCircle, ClipboardPaste, LoaderCircle, Sparkles, X } from 'lucide-react'
 
 type JdPanelProps = {
   value: string
   cvText: string
+  cvClassification: CvClassification | null
+  cvStatus: CvReadStatus
+  cvError: string
+  docx: File | null
+  onClassifyCv: () => void
+  onApplyCvEdit: (blockId: string, text: string) => Promise<void>
+  stories: CvStory[]
+  onSaveStory: (story: CvStory) => void
   onChange: (value: string) => void
   onLoadSample: () => string
 }
@@ -64,7 +75,20 @@ function ModeButton({
   )
 }
 
-export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps) {
+export function JdPanel({
+  value,
+  cvText,
+  cvClassification,
+  cvStatus,
+  cvError,
+  docx,
+  onClassifyCv,
+  onApplyCvEdit,
+  stories,
+  onSaveStory,
+  onChange,
+  onLoadSample,
+}: JdPanelProps) {
   const [mode, setMode] = useState<'edit' | 'review' | 'data'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
@@ -79,6 +103,8 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
   const [profile, setProfile] = useState<ResearchResult | null>(null)
   const [researchStatus, setResearchStatus] = useState<ResearchStatus>('idle')
   const [researchError, setResearchError] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantGap, setAssistantGap] = useState<FitGap | null>(null)
 
   const hasText = value.trim().length > 0
   const words = hasText ? value.trim().split(/\s+/).length : 0
@@ -111,6 +137,42 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
         : null,
     [cvText, value, result, signals],
   )
+
+  const fitGaps = useMemo<FitGap[]>(() => {
+    if (!result) return []
+
+    const requirements = result.data.requirements
+    const seen = new Set<string>()
+    const list: FitGap[] = []
+
+    const add = (term: string, kind: 'must' | 'related') => {
+      const key = term.toLowerCase()
+      if (!term || seen.has(key)) return
+
+      const requirement = requirements.find(
+        (entry) => entry.label.toLowerCase() === key,
+      )
+      const signal = signals.find((entry) => entry.label.toLowerCase() === key)
+      const terms = requirement?.match.length
+        ? requirement.match
+        : signal?.terms.length
+          ? signal.terms
+          : [term]
+
+      seen.add(key)
+      list.push({ label: term, terms, kind })
+    }
+
+    for (const gap of score?.gaps ?? []) add(gap.term, 'must')
+    for (const item of score?.related ?? []) add(item.term, 'related')
+
+    return list
+  }, [result, score, signals])
+
+  function openAssistant(gap?: FitGap) {
+    setAssistantGap(gap ?? fitGaps[0] ?? null)
+    setAssistantOpen(true)
+  }
 
   // Leaving the panel must not leave a request running.
   useEffect(
@@ -370,12 +432,23 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {score.gaps.slice(0, MAX_GAP_CHIPS).map((gap) => (
-                  <span
+                  <button
                     key={gap.key}
-                    className="rounded-md border border-mark-line/60 bg-mark/50 px-1.5 py-[1px] text-[10.5px] font-medium text-mark-foreground"
+                    type="button"
+                    onClick={() =>
+                      openAssistant(
+                        fitGaps.find((entry) => entry.label === gap.term) ?? {
+                          label: gap.term,
+                          terms: [gap.term],
+                          kind: 'must',
+                        },
+                      )
+                    }
+                    title="Draft a bullet for this gap"
+                    className="rounded-md border border-mark-line/60 bg-mark/50 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-mark-foreground transition-colors hover:bg-mark"
                   >
                     {gap.term}
-                  </span>
+                  </button>
                 ))}
                 {score.gaps.length > MAX_GAP_CHIPS ? (
                   <span className="rounded-md px-1.5 py-[1px] text-[10.5px] text-muted-foreground">
@@ -393,12 +466,23 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {score.related.slice(0, MAX_RELATED_CHIPS).map((item) => (
-                  <span
+                  <button
                     key={item.key}
-                    className="rounded-md border border-related-line/70 bg-related/60 px-1.5 py-[1px] text-[10.5px] font-medium text-related-foreground"
+                    type="button"
+                    onClick={() =>
+                      openAssistant(
+                        fitGaps.find((entry) => entry.label === item.term) ?? {
+                          label: item.term,
+                          terms: [item.term],
+                          kind: 'related',
+                        },
+                      )
+                    }
+                    title="Draft a bullet for this relevant experience"
+                    className="rounded-md border border-related-line/70 bg-related/60 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-related-foreground transition-colors hover:bg-related"
                   >
                     {item.term}
-                  </span>
+                  </button>
                 ))}
                 {score.related.length > MAX_RELATED_CHIPS ? (
                   <span className="rounded-md px-1.5 py-[1px] text-[10.5px] text-muted-foreground">
@@ -576,6 +660,34 @@ export function JdPanel({ value, cvText, onChange, onLoadSample }: JdPanelProps)
           <span>Matching stays in your browser</span>
         </div>
       ) : null}
+
+      {result && !assistantOpen ? (
+        <Button
+          size="sm"
+          className="fixed right-4 bottom-4 z-30 gap-1.5 bg-brand-600 shadow-[0_10px_30px_-12px_rgba(35,71,230,0.7)] max-sm:h-11"
+          onClick={() => openAssistant()}
+        >
+          <Sparkles />
+          Improve CV
+        </Button>
+      ) : null}
+
+      <CvAssistant
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        docx={docx}
+        cv={cvClassification}
+        cvStatus={cvStatus}
+        cvError={cvError}
+        onClassifyCv={onClassifyCv}
+        onApplyEdit={onApplyCvEdit}
+        onSaveStory={onSaveStory}
+        jd={result?.data ?? null}
+        profile={profile?.profile ?? null}
+        gaps={fitGaps}
+        initialGap={assistantGap}
+        stories={stories}
+      />
     </aside>
   )
 }
