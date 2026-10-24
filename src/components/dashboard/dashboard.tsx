@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Input } from '@/components/ui/input'
+import {
+  applicationStage,
+  STAGE_LABELS,
+  stageClass,
+  stageDot,
+} from '@/lib/application-stage'
 import type { AccountMe, ApplicationSummary } from '@shared/account'
 import {
   AlertCircle,
-  ArrowRight,
+  ArrowUpRight,
   BriefcaseBusiness,
   FileText,
   LoaderCircle,
+  Mail,
+  PenLine,
   Plus,
+  Search,
   Trash2,
   Upload,
   X,
@@ -19,6 +30,7 @@ type DashboardProps = {
   openingId: string | null
   actionError: string
   onOpenApplication: (id: string) => void
+  onOpenProfile: () => void
   onCreateApplication: (jdText: string) => Promise<void>
   onDeleteApplication: (id: string) => Promise<void>
   onUploadCv: (file: File) => Promise<void>
@@ -35,16 +47,68 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? '' : dateFormat.format(date)
 }
 
-function statusLabel(status: ApplicationSummary['status']) {
-  if (status === 'customized') return 'CV tailored'
-  if (status === 'classified') return 'Posting read'
-  return 'Draft'
+function formatUpdated(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const today = new Date()
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const diff = Math.round((start.getTime() - day.getTime()) / 86_400_000)
+
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Yesterday'
+  return formatDate(value)
 }
 
-function statusClass(status: ApplicationSummary['status']) {
-  if (status === 'customized') return 'bg-success/10 text-success'
-  if (status === 'classified') return 'bg-brand-50 text-brand-700'
-  return 'bg-muted text-muted-foreground'
+function monogram(application: ApplicationSummary) {
+  const source = application.company || application.title || '?'
+  return source.trim().slice(0, 1).toUpperCase()
+}
+
+const STAGES = ['draft', 'reading', 'tailored', 'ready', 'completed', 'sent'] as const
+
+function PackageIcons({ application }: { application: ApplicationSummary }) {
+  const label = [
+    'CV',
+    application.hasCoverLetter ? 'cover letter' : 'no cover letter',
+    application.hasEmailDraft ? 'email draft' : 'no email draft',
+  ].join(', ')
+
+  return (
+    <div
+      role="img"
+      aria-label={`Application package: ${label}`}
+      className="flex items-center gap-1"
+    >
+      <span
+        title="CV snapshot"
+        className="flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600"
+      >
+        <FileText className="size-3.5" strokeWidth={1.75} />
+      </span>
+      <span
+        title={application.hasCoverLetter ? 'Cover letter drafted' : 'No cover letter'}
+        className={
+          application.hasCoverLetter
+            ? 'flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600'
+            : 'flex size-6 items-center justify-center rounded-md bg-muted/60 text-muted-foreground/45'
+        }
+      >
+        <PenLine className="size-3.5" strokeWidth={1.75} />
+      </span>
+      <span
+        title={application.hasEmailDraft ? 'Email drafted' : 'No email draft'}
+        className={
+          application.hasEmailDraft
+            ? 'flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600'
+            : 'flex size-6 items-center justify-center rounded-md bg-muted/60 text-muted-foreground/45'
+        }
+      >
+        <Mail className="size-3.5" strokeWidth={1.75} />
+      </span>
+    </div>
+  )
 }
 
 function NewApplicationDialog({
@@ -112,75 +176,75 @@ function NewApplicationDialog({
           aria-label="New application"
           className="pointer-events-auto flex max-h-[84vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_80px_-30px_rgba(13,21,38,0.5)]"
         >
-        <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
-          <div>
-            <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-              New application
-            </p>
-            <h2 className="mt-1 text-[16px] leading-none font-semibold tracking-[-0.015em] text-ink">
-              Paste the job description
-            </h2>
-            <p className="mt-1.5 text-[11.5px] leading-[1.45] text-muted-foreground">
-              Caddie will read the posting and tailor the CV copied from your
-              profile.
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground hover:text-ink"
-            onClick={onClose}
-            disabled={submitting}
-            aria-label="Close new application"
-          >
-            <X />
-          </Button>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <label
-            htmlFor="new-application-jd"
-            className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase"
-          >
-            Job description
-          </label>
-          <textarea
-            id="new-application-jd"
-            ref={textareaRef}
-            value={jdText}
-            onChange={(event) => {
-              setJdText(event.target.value)
-              if (error) setError('')
-            }}
-            rows={14}
-            spellCheck={false}
-            placeholder="Paste the role, requirements and responsibilities…"
-            className="mt-1.5 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[12px] leading-[1.6] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
-
-          {error ? (
-            <p
-              role="alert"
-              className="mt-2 flex items-start gap-1.5 text-[11px] leading-[1.45] text-muted-foreground"
+          <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+            <div>
+              <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                New application
+              </p>
+              <h2 className="mt-1 text-[16px] leading-none font-semibold tracking-[-0.015em] text-ink">
+                Paste the job description
+              </h2>
+              <p className="mt-1.5 text-[11.5px] leading-[1.45] text-muted-foreground">
+                Caddie will read the posting and open an application workspace.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground hover:text-ink max-sm:size-11"
+              onClick={onClose}
+              disabled={submitting}
+              aria-label="Close new application"
             >
-              <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-              {error}
-            </p>
-          ) : null}
-        </div>
+              <X />
+            </Button>
+          </header>
 
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border/70 bg-muted/20 px-5 py-3">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => void handleCreate()}
-            disabled={submitting || jdText.trim().length < 40}
-          >
-            {submitting ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            Create application
-          </Button>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            <label
+              htmlFor="new-application-jd"
+              className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase"
+            >
+              Job description
+            </label>
+            <textarea
+              id="new-application-jd"
+              ref={textareaRef}
+              value={jdText}
+              onChange={(event) => {
+                setJdText(event.target.value)
+                if (error) setError('')
+              }}
+              rows={14}
+              spellCheck={false}
+              placeholder="Paste the role, requirements and responsibilities…"
+              className="mt-1.5 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[12px] leading-[1.6] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+
+            {error ? (
+              <p
+                role="alert"
+                className="mt-2 flex items-start gap-1.5 text-[11px] leading-[1.45] text-muted-foreground"
+              >
+                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
+                {error}
+              </p>
+            ) : null}
+          </div>
+
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border/70 bg-muted/20 px-5 py-3">
+            <Button variant="ghost" size="sm" className="max-sm:h-11" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="max-sm:h-11"
+              onClick={() => void handleCreate()}
+              disabled={submitting || jdText.trim().length < 40}
+            >
+              {submitting ? <LoaderCircle className="animate-spin" /> : <Plus />}
+              Create application
+            </Button>
           </footer>
         </div>
       </div>
@@ -188,7 +252,7 @@ function NewApplicationDialog({
   )
 }
 
-function ApplicationCard({
+function ApplicationRow({
   application,
   opening,
   onOpen,
@@ -199,46 +263,79 @@ function ApplicationCard({
   onOpen: () => void
   onDelete: () => void
 }) {
-  return (
-    <article className="flex flex-col rounded-xl border border-border bg-card p-4 transition-colors hover:border-brand-200">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-[13.5px] leading-[1.35] font-semibold tracking-[-0.015em] text-ink">
-            {application.title ?? 'Untitled application'}
-          </h3>
-          <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-            {application.company ?? 'Company not read yet'}
-          </p>
-        </div>
-        <span
-          className={`shrink-0 rounded-md px-1.5 py-0.5 text-[9.5px] font-medium ${statusClass(application.status)}`}
-        >
-          {statusLabel(application.status)}
-        </span>
-      </div>
+  const stage = applicationStage(application)
+  const title = application.title ?? 'Untitled application'
+  const company = application.company ?? 'Company not read yet'
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
-        <span className="text-[10.5px] tabular-nums text-muted-foreground">
-          Created {formatDate(application.createdAt)}
+  return (
+    <tr className="group border-t border-border/70 transition-colors hover:bg-muted/25">
+      <td className="w-full max-w-0 py-3 pr-4 pl-4 sm:pl-5">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex min-w-0 items-center gap-3 text-left outline-none focus-visible:rounded-md focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-brand-100 bg-brand-50 text-[12px] font-semibold text-brand-700">
+            {monogram(application)}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[12.5px] leading-[1.35] font-medium text-ink">
+              {title}
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+              {company}
+            </span>
+            <span className="mt-0.5 block text-[10px] tabular-nums text-muted-foreground sm:hidden">
+              Updated {formatUpdated(application.updatedAt)}
+            </span>
+          </span>
+        </button>
+      </td>
+
+      <td className="py-3 pr-3">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${stageClass(stage)}`}
+        >
+          <span className={`size-1.5 rounded-full ${stageDot(stage)}`} />
+          {STAGE_LABELS[stage]}
         </span>
-        <div className="flex items-center gap-0.5">
+      </td>
+
+      <td className="hidden py-3 pr-3 md:table-cell">
+        <PackageIcons application={application} />
+      </td>
+
+      <td className="hidden py-3 pr-3 text-[11px] tabular-nums text-muted-foreground sm:table-cell">
+        {formatUpdated(application.updatedAt)}
+      </td>
+
+      <td className="py-3 pr-3 whitespace-nowrap">
+        <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground hover:text-destructive"
+            className="text-muted-foreground hover:text-destructive max-sm:size-11"
             onClick={onDelete}
-            aria-label={`Delete ${application.title ?? 'application'}`}
+            aria-label={`Delete ${title}`}
+            title={`Delete ${title}`}
           >
             <Trash2 />
           </Button>
-          <Button variant="outline" size="sm" onClick={onOpen} disabled={opening}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-ink max-sm:h-11 max-sm:px-3"
+            onClick={onOpen}
+            disabled={opening}
+            aria-label={`Open ${title}`}
+          >
             {opening ? <LoaderCircle className="animate-spin" /> : null}
-            Open
-            {!opening ? <ArrowRight /> : null}
+            <span className="hidden sm:inline">Open</span>
+            {!opening ? <ArrowUpRight /> : null}
           </Button>
         </div>
-      </div>
-    </article>
+      </td>
+    </tr>
   )
 }
 
@@ -247,6 +344,7 @@ export function Dashboard({
   openingId,
   actionError,
   onOpenApplication,
+  onOpenProfile,
   onCreateApplication,
   onDeleteApplication,
   onUploadCv,
@@ -254,10 +352,34 @@ export function Dashboard({
   const [creating, setCreating] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'all' | (typeof STAGES)[number]>('all')
+  const [pendingDelete, setPendingDelete] = useState<ApplicationSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const hasCv = Boolean(me.cv)
   const applications = me.applications
+
+  const counts = applications.reduce<Record<string, number>>(
+    (current, application) => {
+      const stage = applicationStage(application)
+      current[stage] = (current[stage] ?? 0) + 1
+      return current
+    },
+    {},
+  )
+
+  const filtered = applications.filter((application) => {
+    const stage = applicationStage(application)
+    if (filter !== 'all' && stage !== filter) return false
+    const query = search.trim().toLowerCase()
+    if (!query) return true
+    return (
+      (application.title ?? '').toLowerCase().includes(query) ||
+      (application.company ?? '').toLowerCase().includes(query)
+    )
+  })
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -277,46 +399,77 @@ export function Dashboard({
     }
   }
 
-  async function handleDelete(id: string) {
-    const confirmed = window.confirm(
-      'Delete this application? The tailored CV will be removed with it.',
-    )
-    if (!confirmed) return
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    setUploadError('')
     try {
-      await onDeleteApplication(id)
+      await onDeleteApplication(pendingDelete.id)
+      setPendingDelete(null)
     } catch (caught) {
       setUploadError(
-        caught instanceof Error ? caught.message : 'That application could not be deleted.',
+        caught instanceof Error
+          ? caught.message
+          : 'That application could not be deleted.',
       )
+    } finally {
+      setDeleting(false)
     }
   }
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(100%_80%_at_50%_-10%,#ffffff_0%,#f4f6fb_55%,#edf0f7_100%)]">
-      <div className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 sm:py-10">
+    <main className="min-h-0 flex-1 overflow-y-auto bg-canvas">
+      <div className="mx-auto w-full max-w-[1120px] px-4 py-8 sm:px-6 sm:py-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
               Applications
             </p>
-            <h1 className="mt-1.5 text-[24px] leading-[1.1] font-semibold tracking-[-0.03em] text-ink">
-              Prepare for the next role.
+            <h1 className="mt-1.5 text-[26px] leading-[1.08] font-semibold tracking-[-0.035em] text-ink">
+              Every role in play.
             </h1>
-            <p className="mt-2 max-w-[52ch] text-[12.5px] leading-[1.55] text-muted-foreground">
-              Each application keeps its own posting and tailored CV, so you can
-              come back to it before you send anything.
+            <p className="mt-2 max-w-[56ch] text-[12.5px] leading-[1.55] text-muted-foreground">
+              The posting, the CV and everything you send, kept together.
             </p>
+            {me.cv ? (
+              <button
+                type="button"
+                onClick={onOpenProfile}
+                className="mt-3 inline-flex max-w-full items-center gap-1.5 text-[10.5px] text-muted-foreground outline-none hover:text-ink max-sm:min-h-11 max-sm:py-2 focus-visible:rounded-sm focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <FileText className="size-3 shrink-0" strokeWidth={1.75} />
+                <span className="truncate">{me.cv.fileName}</span>
+                <span className="shrink-0 text-muted-foreground/70">
+                  · {me.cv.kind.toUpperCase()} · Manage
+                </span>
+              </button>
+            ) : null}
           </div>
-          <Button
-            size="sm"
-            className="h-9"
-            onClick={() => setCreating(true)}
-            disabled={!hasCv}
-            title={hasCv ? undefined : 'Upload a CV first'}
-          >
-            <Plus />
-            New application
-          </Button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+            hidden
+            onChange={(event) => void handleUpload(event)}
+          />
+
+          {hasCv ? (
+            <Button size="sm" className="h-9 max-sm:h-11" onClick={() => setCreating(true)}>
+              <Plus />
+              New application
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="h-9 max-sm:h-11"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? <LoaderCircle className="animate-spin" /> : <Upload />}
+              {uploading ? 'Saving…' : 'Upload CV'}
+            </Button>
+          )}
         </div>
 
         {actionError || uploadError ? (
@@ -330,134 +483,125 @@ export function Dashboard({
         ) : null}
 
         <section className="mt-7">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-              Your CV
-            </h2>
-            {hasCv ? (
-              <Button
-                variant="ghost"
-                size="xs"
-                className="text-muted-foreground hover:text-ink"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-              >
-                {uploading ? <LoaderCircle className="animate-spin" /> : <Upload />}
-                {uploading ? 'Saving…' : 'Replace'}
-              </Button>
-            ) : null}
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-            hidden
-            onChange={(event) => void handleUpload(event)}
-          />
-
-          {me.cv ? (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-brand-100 bg-brand-50 text-brand-600">
-                  <FileText className="size-4" strokeWidth={1.75} />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-[12px] font-medium text-ink">
-                    {me.cv.fileName}
-                  </p>
-                  <p className="text-[10.5px] text-muted-foreground">
-                    {me.cv.kind === 'docx'
-                      ? 'DOCX · editable for tailoring'
-                      : 'PDF · read-only for tailoring'}{' '}
-                    · saved {formatDate(me.cv.updatedAt)}
-                  </p>
-                </div>
+          {applications.length > 0 ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-[280px]">
+                <Search
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  strokeWidth={1.75}
+                />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Find a role or company"
+                  aria-label="Find an application"
+                  className="pl-8 max-sm:h-11"
+                />
               </div>
-              {me.cv.kind === 'pdf' ? (
-                <p className="text-[10.5px] text-muted-foreground">
-                  Replace with a DOCX to let Caddie edit bullets.
-                </p>
-              ) : null}
+
+              <div
+                className="flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-muted p-0.5 [scrollbar-width:none] sm:flex-nowrap sm:overflow-x-auto [&::-webkit-scrollbar]:hidden"
+                role="group"
+                aria-label="Filter applications by stage"
+              >
+                <FilterButton
+                  active={filter === 'all'}
+                  onClick={() => setFilter('all')}
+                  label="All"
+                  count={applications.length}
+                />
+                {STAGES.map((stage) => (
+                  <FilterButton
+                    key={stage}
+                    active={filter === stage}
+                    onClick={() => setFilter(stage)}
+                    label={STAGE_LABELS[stage]}
+                    count={counts[stage] ?? 0}
+                  />
+                ))}
+              </div>
             </div>
-          ) : (
-            <div className="mt-2 rounded-xl border border-dashed border-brand-200 bg-brand-50/40 px-4 py-5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-brand-100 bg-card text-brand-600">
-                    <FileText className="size-4" strokeWidth={1.75} />
-                  </span>
-                  <div>
-                    <p className="text-[12.5px] font-medium text-ink">
-                      Upload your CV to start
-                    </p>
-                    <p className="mt-1 max-w-[52ch] text-[11.5px] leading-[1.45] text-muted-foreground">
-                      A DOCX keeps its fonts and lets Caddie tailor individual
-                      bullets. PDFs are accepted, but they are read-only.
-                    </p>
-                  </div>
+          ) : null}
+
+          <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
+            {applications.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                <div className="flex size-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
+                  <BriefcaseBusiness className="size-5" strokeWidth={1.75} />
                 </div>
+                <p className="mt-3 text-[13px] font-medium text-ink">No applications yet</p>
+                <p className="mt-1 max-w-[42ch] text-[11.5px] leading-[1.5] text-muted-foreground">
+                  {hasCv
+                    ? 'Paste a posting and Caddie will build the application around it.'
+                    : 'Upload your CV, then paste a posting to start the first application.'}
+                </p>
                 <Button
+                  variant="outline"
                   size="sm"
-                  className="h-9"
-                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-4 bg-card max-sm:h-11"
+                  onClick={() => (hasCv ? setCreating(true) : fileInputRef.current?.click())}
                   disabled={uploading}
                 >
-                  {uploading ? <LoaderCircle className="animate-spin" /> : <Upload />}
-                  {uploading ? 'Saving…' : 'Upload CV'}
+                  {hasCv ? <Plus /> : <Upload />}
+                  {hasCv ? 'New application' : 'Upload CV'}
                 </Button>
               </div>
-            </div>
-          )}
-        </section>
-
-        <section className="mt-8">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-              Applications
-            </h2>
-            <span className="text-[10.5px] tabular-nums text-muted-foreground">
-              {applications.length}
-            </span>
-          </div>
-
-          {applications.length === 0 ? (
-            <div className="mt-2 flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-12 text-center">
-              <div className="flex size-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
-                <BriefcaseBusiness className="size-5" strokeWidth={1.75} />
+            ) : filtered.length === 0 ? (
+              <div className="px-6 py-14 text-center">
+                <p className="text-[13px] font-medium text-ink">Nothing in this view.</p>
+                <p className="mt-1 text-[11.5px] text-muted-foreground">
+                  Try another stage or clear the search.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3 text-muted-foreground hover:text-ink"
+                  onClick={() => {
+                    setFilter('all')
+                    setSearch('')
+                  }}
+                >
+                  Clear filters
+                </Button>
               </div>
-              <p className="mt-3 text-[13px] font-medium text-ink">
-                No applications yet
-              </p>
-              <p className="mt-1 max-w-[40ch] text-[11.5px] leading-[1.5] text-muted-foreground">
-                {hasCv
-                  ? 'Paste a job description and Caddie will prepare it against your CV.'
-                  : 'Upload your CV, then paste a job description to prepare your first application.'}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4 bg-card"
-                onClick={() => (hasCv ? setCreating(true) : fileInputRef.current?.click())}
-                disabled={uploading}
-              >
-                {hasCv ? <Plus /> : <Upload />}
-                {hasCv ? 'New application' : 'Upload CV'}
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-2 grid gap-3 sm:grid-cols-2">
-              {applications.map((application) => (
-                <ApplicationCard
-                  key={application.id}
-                  application={application}
-                  opening={openingId === application.id}
-                  onOpen={() => onOpenApplication(application.id)}
-                  onDelete={() => void handleDelete(application.id)}
-                />
-              ))}
-            </div>
-          )}
+            ) : (
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="bg-muted/35 text-[9.5px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    <th scope="col" className="py-2.5 pr-4 pl-4 font-semibold sm:pl-5">
+                      Role
+                    </th>
+                    <th scope="col" className="py-2.5 pr-3 font-semibold">
+                      Stage
+                    </th>
+                    <th scope="col" className="hidden py-2.5 pr-3 font-semibold md:table-cell">
+                      Package
+                    </th>
+                    <th scope="col" className="hidden py-2.5 pr-3 font-semibold sm:table-cell">
+                      Updated
+                    </th>
+                    <th scope="col" className="py-2.5 pr-3">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((application) => (
+                    <ApplicationRow
+                      key={application.id}
+                      application={application}
+                      opening={openingId === application.id}
+                      onOpen={() => onOpenApplication(application.id)}
+                      onDelete={() => {
+                        setPendingDelete(application)
+                        setUploadError('')
+                      }}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </section>
       </div>
 
@@ -468,6 +612,58 @@ export function Dashboard({
           onCreate={onCreateApplication}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={pendingDelete ? `Delete ${pendingDelete.title ?? 'application'}?` : 'Delete application?'}
+        description="The posting, CV snapshot, cover letter and email draft in this application will be removed."
+        confirmLabel="Delete application"
+        busy={deleting}
+        destructive
+        onConfirm={() => void confirmDelete()}
+        onClose={() => {
+          if (!deleting) setPendingDelete(null)
+        }}
+      >
+        {pendingDelete ? (
+          <span className="flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate font-medium text-ink">
+              {pendingDelete.title ?? 'Untitled application'}
+            </span>
+            <span className="shrink-0 text-[10px]">
+              Last updated {formatUpdated(pendingDelete.updatedAt)}
+            </span>
+          </span>
+        ) : null}
+      </ConfirmDialog>
     </main>
+  )
+}
+
+function FilterButton({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  count: number
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex shrink-0 items-center gap-1 rounded-[7px] px-2 py-1 max-sm:min-h-11 max-sm:px-3 text-[11px] font-medium whitespace-nowrap transition-colors ${
+        active
+          ? 'bg-card text-ink shadow-[0_1px_2px_rgba(13,21,38,0.08)]'
+          : 'text-muted-foreground hover:text-ink'
+      }`}
+    >
+      {label}
+      <span className="text-[9.5px] tabular-nums opacity-60">{count}</span>
+    </button>
   )
 }

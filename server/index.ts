@@ -1,12 +1,23 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 
-import type { AccountCvKind, AccountUser, UpdateApplicationPatch } from '../shared/account'
+import type {
+  AccountCvKind,
+  AccountUser,
+  ComposeKind,
+  SaveSendingInput,
+  SendApplicationInput,
+  UpdateApplicationPatch,
+} from '../shared/account'
+import type { CvPlanRequest } from '../shared/cv-plan'
 import type { CvStory, FitRequest } from '../shared/cv-fit'
 import type { ClassifyModel } from '../shared/jd-classification'
 import { guardJd, NOT_JD_MESSAGE } from '../shared/jd-guard'
 import { classifyJd } from './classify'
 import { CloudflareError } from './cloudflare'
+import { composeApplication } from './compose'
+import { renderCoverLetterPdf } from './cover-letter'
+import { SecretError } from './crypto'
 import {
   DocxError,
   MAX_DOCX_BYTES,
@@ -18,6 +29,7 @@ import { classifyCvDocxDeep } from './cv/classify'
 import { classifyCvDocxFast } from './cv/fast'
 import { CvClassifyError } from './cv/errors'
 import { FitError, proposeCvFit } from './cv/fit'
+import { planCv } from './cv/plan'
 import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
 import {
@@ -31,6 +43,7 @@ import {
   getBaseFile,
   getMe,
   listApplications,
+  completeApplication,
   listStories,
   saveApplicationCv,
   saveBaseCv,
@@ -41,6 +54,14 @@ import { authBaseUrl, authConfigured, getAuth } from './auth'
 import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
 import { researchCompany } from './research'
+import { sendApplication } from './send'
+import {
+  deleteSending,
+  deleteSendingKey,
+  getSending,
+  saveSending,
+  testSending,
+} from './sending'
 import { sessionMiddleware, type AppEnv } from './session'
 import { validateJd } from './validate'
 
@@ -201,8 +222,11 @@ function cvFailure(c: Context, error: unknown) {
   if (error instanceof AccountError) {
     return c.json(
       { error: error.message },
-      error.status as 400 | 404 | 409 | 413 | 503,
+      error.status as 400 | 404 | 409 | 413 | 422 | 500 | 502 | 503 | 504,
     )
+  }
+  if (error instanceof SecretError) {
+    return c.json({ error: error.message }, 503)
   }
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)
@@ -323,6 +347,36 @@ app.post('/api/cv/classify', async (c) => {
   }
 })
 
+app.post('/api/cv/plan', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+
+  if (
+    !body ||
+    typeof body.docx !== 'string' ||
+    typeof body.cv !== 'object' ||
+    typeof body.jd !== 'object' ||
+    !Array.isArray(body.gaps)
+  ) {
+    return c.json({ error: 'Send the DOCX, CV map, JD data and missing skills.' }, 400)
+  }
+
+  const request = {
+    ...body,
+    message: typeof body.message === 'string' ? body.message.slice(0, 4_000) : '',
+    history: Array.isArray(body.history) ? body.history.slice(-8) : [],
+    stories: Array.isArray(body.stories) ? body.stories.slice(0, 10) : [],
+    excludeBlockIds: Array.isArray(body.excludeBlockIds)
+      ? body.excludeBlockIds.filter((id): id is string => typeof id === 'string').slice(0, 20)
+      : [],
+  } as unknown as CvPlanRequest
+
+  try {
+    return c.json(await planCv(request, readConfig()))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
 app.post('/api/cv/fit', async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
 
@@ -437,7 +491,60 @@ function sendFile(
 
 app.get('/api/me', async (c) => {
   const session = c.get('session')
-  return c.json(await getMe(session.user.id, accountUser(session.user)))
+  const [me, sending] = await Promise.all([
+    getMe(session.user.id, accountUser(session.user)),
+    getSending(session.user.id),
+  ])
+  return c.json({ ...me, sending })
+})
+
+app.put('/api/me/sending', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | (Partial<SaveSendingInput> & { apiKey?: unknown })
+    | null
+
+  if (!body || typeof body.email !== 'string') {
+    return c.json({ error: 'Add the email address you send from.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    const sending = await saveSending(session.user.id, {
+      email: body.email,
+      fromName: typeof body.fromName === 'string' ? body.fromName : null,
+      apiKey: typeof body.apiKey === 'string' ? body.apiKey : undefined,
+    })
+    return c.json({ sending })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/me/sending/test', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ sending: await testSending(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/me/sending', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ sending: await deleteSending(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/me/sending/key', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ sending: await deleteSendingKey(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
 })
 
 app.post('/api/me/cv', async (c) => {
@@ -542,6 +649,82 @@ app.post('/api/applications', async (c) => {
   }
 })
 
+app.post('/api/applications/:id/compose', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    kind?: unknown
+  } | null
+  const kind = body?.kind
+  if (kind !== 'cover-letter' && kind !== 'email') {
+    return c.json({ error: 'Choose a cover letter or an email draft.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json(
+      await composeApplication(session.user.id, c.req.param('id'), kind as ComposeKind),
+    )
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/applications/:id/complete', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json(await completeApplication(session.user.id, c.req.param('id')))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/applications/:id/send', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | (Partial<SendApplicationInput> & { attachCv?: unknown })
+    | null
+
+  if (
+    !body ||
+    typeof body.to !== 'string' ||
+    typeof body.subject !== 'string' ||
+    typeof body.body !== 'string'
+  ) {
+    return c.json({ error: 'Add a recipient, subject and message before sending.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json(
+      await sendApplication(session.user.id, c.req.param('id'), {
+        to: body.to,
+        subject: body.subject,
+        body: body.body,
+        attachCv: body.attachCv !== false,
+      }),
+    )
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/applications/:id/cover-letter.pdf', async (c) => {
+  try {
+    const session = c.get('session')
+    const application = await getApplication(session.user.id, c.req.param('id'))
+    if (!application.coverLetter?.text.trim()) {
+      return c.json({ error: 'There is no cover letter to download.' }, 404)
+    }
+
+    const pdf = await renderCoverLetterPdf(application.coverLetter.text)
+    return c.body(pdf, 200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="cover-letter.pdf"',
+      'Cache-Control': 'private, no-store',
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
 app.get('/api/applications/:id', async (c) => {
   try {
     const session = c.get('session')
@@ -556,6 +739,8 @@ app.patch('/api/applications/:id', async (c) => {
     jdText?: unknown
     classification?: unknown
     status?: unknown
+    coverLetter?: unknown
+    emailDraft?: unknown
   } | null
 
   if (!body) return c.json({ error: 'Send an update.' }, 400)
@@ -583,6 +768,14 @@ app.patch('/api/applications/:id', async (c) => {
     body.status === 'customized'
   ) {
     patch.status = body.status
+  }
+
+  if ('coverLetter' in body) {
+    patch.coverLetter = body.coverLetter as UpdateApplicationPatch['coverLetter']
+  }
+
+  if ('emailDraft' in body) {
+    patch.emailDraft = body.emailDraft as UpdateApplicationPatch['emailDraft']
   }
 
   if (Object.keys(patch).length === 0) {

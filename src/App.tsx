@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthScreen } from '@/components/auth/auth-screen'
 import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
 import { Dashboard } from '@/components/dashboard/dashboard'
+import { Profile } from '@/components/profile/profile'
 import { Workspace } from '@/components/workspace/workspace'
 import { Button } from '@/components/ui/button'
 import {
@@ -78,6 +79,7 @@ function AccountApp({ user }: { user: AccountUser }) {
   const [actionError, setActionError] = useState('')
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [active, setActive] = useState<ApplicationDetail | null>(null)
+  const [view, setView] = useState<'applications' | 'profile'>('applications')
   const mountedRef = useRef(true)
 
   const loadMe = useCallback(async () => {
@@ -123,6 +125,7 @@ function AccountApp({ user }: { user: AccountUser }) {
     setActionError('')
     try {
       const detail = await getApplication(id)
+      setView('applications')
       setActive(detail)
     } catch (caught) {
       setActionError(
@@ -136,13 +139,20 @@ function AccountApp({ user }: { user: AccountUser }) {
   async function handleCreateApplication(jdText: string) {
     const detail = await createApplication(jdText)
     await loadMe().catch(() => {})
+    setView('applications')
     setActive(detail)
   }
 
   function handleBack() {
     setActive(null)
+    setView('applications')
     setActionError('')
     void loadMe()
+  }
+
+  function handleOpenProfile() {
+    setView('profile')
+    setActionError('')
   }
 
   async function handleUpdateApplication(patch: UpdateApplicationPatch) {
@@ -190,6 +200,7 @@ function AccountApp({ user }: { user: AccountUser }) {
   async function handleSignOut() {
     await signOut()
     setActive(null)
+    setView('applications')
     setMe(null)
   }
 
@@ -214,12 +225,36 @@ function AccountApp({ user }: { user: AccountUser }) {
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/70 bg-background/85 px-4 backdrop-blur-md sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <CaddieMark className="size-[26px]" />
-          <CaddieWordmark />
+          <button
+            type="button"
+            onClick={() => {
+              setActive(null)
+              setView('applications')
+              setActionError('')
+            }}
+            className="flex shrink-0 items-center gap-2 rounded-md outline-none max-sm:size-11 max-sm:justify-center focus-visible:ring-3 focus-visible:ring-ring/50"
+            aria-label="Caddie applications"
+          >
+            <CaddieMark className="size-[26px]" />
+            <CaddieWordmark className="hidden sm:inline" />
+          </button>
+
           <span className="hidden h-4 w-px bg-border sm:block" />
-          <span className="hidden text-[12px] text-muted-foreground sm:block">
-            {active ? 'Application' : 'Applications'}
-          </span>
+
+          <nav className="flex items-center gap-0.5" aria-label="Primary">
+            <NavButton
+              active={view === 'applications'}
+              onClick={() => {
+                setView('applications')
+                setActionError('')
+              }}
+            >
+              Applications
+            </NavButton>
+            <NavButton active={view === 'profile'} onClick={handleOpenProfile}>
+              Profile
+            </NavButton>
+          </nav>
         </div>
         <div className="flex min-w-0 items-center gap-2">
           <div className="hidden min-w-0 text-right sm:block">
@@ -245,7 +280,7 @@ function AccountApp({ user }: { user: AccountUser }) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground hover:text-ink"
+            className="text-muted-foreground hover:text-ink max-sm:size-11"
             onClick={() => void handleSignOut()}
             aria-label="Sign out"
             title="Sign out"
@@ -255,13 +290,21 @@ function AccountApp({ user }: { user: AccountUser }) {
         </div>
       </header>
 
-      {active ? (
+      {view === 'profile' ? (
+        <Profile me={me} onUploadCv={handleUploadCv} onRefreshMe={loadMe} />
+      ) : active ? (
         <Workspace
           key={active.id}
           application={active}
           stories={me.stories}
+          sending={me.sending}
           onBack={handleBack}
+          onOpenProfile={handleOpenProfile}
           onUpdateApplication={handleUpdateApplication}
+          onApplicationUpdated={(updated) => {
+            setActive(updated)
+            patchMeApplication(updated)
+          }}
           onSaveCv={handleSaveCv}
           onSaveStory={handleSaveStory}
         />
@@ -271,12 +314,38 @@ function AccountApp({ user }: { user: AccountUser }) {
           openingId={openingId}
           actionError={actionError || error}
           onOpenApplication={(id) => void handleOpenApplication(id)}
+          onOpenProfile={handleOpenProfile}
           onCreateApplication={handleCreateApplication}
           onDeleteApplication={handleDeleteApplication}
           onUploadCv={handleUploadCv}
         />
       )}
     </div>
+  )
+}
+
+function NavButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`rounded-md px-2 py-1.5 text-[11.5px] max-sm:min-h-11 max-sm:px-3 font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
+        active
+          ? 'bg-brand-50 text-brand-700'
+          : 'text-muted-foreground hover:text-ink'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 

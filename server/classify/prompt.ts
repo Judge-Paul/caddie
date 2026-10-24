@@ -1,10 +1,13 @@
 import type { ChatMessage } from '../cloudflare'
+import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
 
 /**
  * The contract the model is asked to fill. `shared/jd-classification.ts` then
  * coerces the answer, so this prompt can stay about judgement rather than types.
  */
 export const CLASSIFY_SYSTEM_PROMPT = `You turn job descriptions into structured data for a CV matcher. Return one JSON object and nothing else.
+
+${PROMPT_SAFETY}
 
 Field rules
 - role.title: the job title as written. Drop the company, location, team and req IDs. If several titles appear, use the one being hired for.
@@ -96,7 +99,7 @@ export function classificationMessages(jd: string): ChatMessage[] {
     { role: 'system', content: CLASSIFY_SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Classify this job description. Respond with the JSON object only.\n\n"""\n${jd.trim()}\n"""`,
+      content: `Classify this job description. Respond with the JSON object only.\n\n${untrusted('job_description', jd.trim(), 40_000)}`,
     },
   ]
 }

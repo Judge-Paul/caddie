@@ -4,7 +4,11 @@ import type {
   AccountMe,
   ApplicationDetail,
   ApplicationSummary,
+  ComposeKind,
   CreateApplicationInput,
+  SaveSendingInput,
+  SendApplicationInput,
+  SendingSettings,
   UpdateApplicationPatch,
 } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
@@ -84,6 +88,37 @@ export function deleteBaseCv() {
   return request<{ ok: true }>('/api/me/cv', { method: 'DELETE' })
 }
 
+export function saveSending(input: SaveSendingInput) {
+  return request<{ sending: SendingSettings }>('/api/me/sending', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function testSending() {
+  return request<{ sending: SendingSettings }>('/api/me/sending/test', {
+    method: 'POST',
+  })
+}
+
+export function deleteSending() {
+  return request<{ sending: SendingSettings }>('/api/me/sending', {
+    method: 'DELETE',
+  })
+}
+
+export function deleteSendingKey() {
+  return request<{ sending: SendingSettings }>('/api/me/sending/key', {
+    method: 'DELETE',
+  })
+}
+
+export function completeApplication(id: string) {
+  return request<ApplicationDetail>(`/api/applications/${id}/complete`, {
+    method: 'POST',
+  })
+}
+
 export function getBaseCvFile(kind: AccountCvKind) {
   return file(`/api/me/cv/${kind}`)
 }
@@ -100,6 +135,20 @@ export function getApplication(id: string) {
   return request<ApplicationDetail>(`/api/applications/${id}`)
 }
 
+export function composeApplication(id: string, kind: ComposeKind) {
+  return request<ApplicationDetail>(`/api/applications/${id}/compose`, {
+    method: 'POST',
+    body: JSON.stringify({ kind }),
+  })
+}
+
+export function sendApplication(id: string, input: SendApplicationInput) {
+  return request<ApplicationDetail>(`/api/applications/${id}/send`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 export function updateApplication(id: string, patch: UpdateApplicationPatch) {
   return request<ApplicationDetail>(`/api/applications/${id}`, {
     method: 'PATCH',
@@ -113,6 +162,41 @@ export function deleteApplication(id: string) {
 
 export function getApplicationFile(id: string, kind: AccountCvKind) {
   return file(`/api/applications/${id}/cv/${kind}`)
+}
+
+function triggerDownload(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export async function downloadApplicationFile(
+  id: string,
+  kind: AccountCvKind,
+  fileName: string,
+) {
+  triggerDownload(await file(`/api/applications/${id}/cv/${kind}`), fileName)
+}
+
+export async function downloadApplicationCoverLetter(id: string, fileName: string) {
+  const response = await fetch(`/api/applications/${id}/cover-letter.pdf`, {
+    credentials: 'same-origin',
+  })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new AccountApiError(
+      payload?.error ?? `Cover letter download failed (${response.status}).`,
+      response.status,
+    )
+  }
+  triggerDownload(await response.blob(), fileName)
 }
 
 export async function saveApplicationCv(

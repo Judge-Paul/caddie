@@ -5,6 +5,7 @@ import type {
   CvClassificationResponse,
   CvContact,
   CvEducation,
+  CvProject,
   CvRole,
 } from '../../shared/cv-classification'
 import {
@@ -19,6 +20,7 @@ import { CvClassifyError } from './errors'
 export type BlockKind =
   | 'heading'
   | 'role_header'
+  | 'project_header'
   | 'bullet'
   | 'summary'
   | 'education'
@@ -29,6 +31,7 @@ export type BlockKind =
 const LABELS: BlockKind[] = [
   'heading',
   'role_header',
+  'project_header',
   'bullet',
   'summary',
   'education',
@@ -40,7 +43,8 @@ const LABELS: BlockKind[] = [
 const CLEF_CRITERIA: Record<string, string> = {
   heading: 'A section heading such as Profile, Experience, Education, Skills or Projects.',
   role_header: 'A job title line, usually with company and/or dates.',
-  bullet: 'A bullet point or achievement under a role.',
+  project_header: 'A project or product name under a role, or in a Projects section. Usually bold and not starting with an action verb.',
+  bullet: 'A bullet point or achievement under a role or project.',
   summary: 'A prose profile or summary paragraph.',
   education: 'An education entry: institution, degree and/or dates.',
   skills: 'A list of skills, tools or languages.',
@@ -401,6 +405,78 @@ function roleFrom(
   }
 }
 
+function projectFrom(
+  block: CvBlock,
+  index: number,
+  role: CvRole | null,
+): CvProject | null {
+  const text = block.text
+  const dates = dateOf(text)
+  let core = clean(dates ? text.replace(dates, ' ') : text)
+  if (!core) return null
+
+  core = core.replace(/^(?:side\s+)?project\s*[:—–-]\s*/i, '')
+  const parts = core.split(/\s*[—–]\s*|\s*:\s+/).map(clean).filter(Boolean)
+  let name: string | null = null
+  let description: string | null = null
+
+  if (parts.length > 1) {
+    name = parts[0]
+    description = clean(parts.slice(1).join(' — '))
+  } else {
+    name = core
+  }
+
+  if (name && name.length > 120) {
+    description = name
+    name = null
+  }
+
+  const url = /(?:https?:\/\/|www\.)[^\s)]+/i.exec(text)?.[0] ?? null
+  const kind = role
+    ? 'work'
+    : /open.?source|github/i.test(text)
+      ? 'open-source'
+      : /side project|personal project/i.test(text)
+        ? 'side'
+        : 'unknown'
+
+  return {
+    id: `project-${index + 1}`,
+    name,
+    description:
+      description && text.includes(description) ? description : null,
+    product: null,
+    url,
+    dates,
+    kind,
+    roleId: role?.id ?? null,
+    company: role?.company ?? null,
+    tech: [],
+    bullets: [],
+    anchors: {
+      name: name && text.includes(name) ? { blockId: block.id, find: name } : null,
+      description:
+        description && text.includes(description)
+          ? { blockId: block.id, find: description }
+          : null,
+      url: url ? { blockId: block.id, find: url } : null,
+      dates: dates ? { blockId: block.id, find: dates } : null,
+      tech: null,
+    },
+  }
+}
+
+function looksLikeProjectHeader(block: CvBlock, next: CvBlock | undefined) {
+  if (block.list) return false
+  if (!block.text.trim()) return false
+  if (DATE_RANGE.test(block.text)) return false
+  if (ROLE_WORDS.test(block.text)) return false
+  if (block.text.length > 140) return false
+  if (block.bold || block.outlineLevel !== null) return true
+  return Boolean(next?.list && block.text.length <= 90)
+}
+
 function educationFrom(block: CvBlock, index: number): CvEducation | null {
   const text = block.text
   const dates = dateOf(text)
@@ -477,6 +553,9 @@ export async function classifyCvDocxFast(
   const data: CvClassification = emptyCvClassification()
   let section = 'other'
   let summarySet = false
+  let currentRole: CvRole | null = null
+  let currentProject: CvProject | null = null
+  let sawProjectsSection = false
 
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]
@@ -486,7 +565,12 @@ export async function classifyCvDocxFast(
 
     if (label === 'heading') {
       const next = sectionOf(block.text)
-      if (next) section = next
+      if (next) {
+        if (next === 'projects') sawProjectsSection = true
+        section = next
+        currentProject = null
+        if (next !== 'experience') currentRole = null
+      }
       continue
     }
 
@@ -517,19 +601,44 @@ export async function classifyCvDocxFast(
     if (label === 'role_header') {
       section = 'experience'
       const role = roleFrom(block, data.roles.length)
-      if (role) data.roles.push(role)
+      if (role) {
+        data.roles.push(role)
+        currentRole = role
+        currentProject = null
+      }
+      continue
+    }
+
+    if (
+      label === 'project_header' ||
+      (section === 'projects' && label === 'other' && !block.list) ||
+      (section === 'experience' && label === 'other' && looksLikeProjectHeader(block, blocks[index + 1]))
+    ) {
+      const project = projectFrom(block, data.projects.length, currentRole)
+      if (project) {
+        data.projects.push(project)
+        currentProject = project
+      }
       continue
     }
 
     if (label === 'bullet') {
+      if (section === 'projects' && currentProject) {
+        currentProject.bullets.push({
+          text: block.text,
+          anchor: { blockId: block.id, find: null },
+        })
+        continue
+      }
       if (section !== 'experience') continue
-      const role = data.roles[data.roles.length - 1]
+      const role = currentRole ?? data.roles[data.roles.length - 1]
       if (!role) continue
       const bullet: CvBullet = {
         text: block.text,
         anchor: { blockId: block.id, find: null },
       }
-      role.bullets.push(bullet)
+      if (currentProject) currentProject.bullets.push(bullet)
+      else role.bullets.push(bullet)
       continue
     }
 
@@ -547,7 +656,9 @@ export async function classifyCvDocxFast(
     0,
   )
   const needsDeepRead =
-    normalised.roles.length === 0 || totalBullets === 0
+    normalised.roles.length === 0 ||
+    totalBullets === 0 ||
+    (sawProjectsSection && normalised.projects.length === 0)
 
   return {
     data: normalised,

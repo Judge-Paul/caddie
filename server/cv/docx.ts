@@ -30,6 +30,10 @@ export type DocxBlock = {
   style: string | null
   list: boolean
   inTable: boolean
+  outlineLevel: number | null
+  numberingLevel: number | null
+  indentLeft: number | null
+  bold: boolean
 }
 
 export type DocxEdit = {
@@ -98,6 +102,38 @@ function paragraphStyle(paragraph: XmlElement) {
   return style?.getAttributeNS(W_NS, 'val') ?? null
 }
 
+function numericProperty(paragraph: XmlElement, element: string, attribute = 'val') {
+  const node = paragraph.getElementsByTagNameNS(W_NS, element)[0]
+  const value = Number(node?.getAttributeNS(W_NS, attribute))
+  return Number.isFinite(value) ? value : null
+}
+
+function outlineLevelOf(paragraph: XmlElement) {
+  return numericProperty(paragraph, 'outlineLvl')
+}
+
+function numberingLevelOf(paragraph: XmlElement) {
+  const numbering = paragraph.getElementsByTagNameNS(W_NS, 'numPr')[0]
+  if (!numbering) return null
+  return numericProperty(numbering, 'ilvl')
+}
+
+function indentLeftOf(paragraph: XmlElement) {
+  const indent = paragraph.getElementsByTagNameNS(W_NS, 'ind')[0]
+  const value = Number(indent?.getAttributeNS(W_NS, 'left'))
+  return Number.isFinite(value) ? value : null
+}
+
+function isBold(paragraph: XmlElement) {
+  const runs = paragraph.getElementsByTagNameNS(W_NS, 'r')
+  return Array.from(runs).some((run) => {
+    const bold = run.getElementsByTagNameNS(W_NS, 'b')[0]
+    if (!bold) return false
+    const value = bold.getAttributeNS(W_NS, 'val')
+    return value !== '0' && value !== 'false'
+  })
+}
+
 function paragraphsOf(document: XmlDocument) {
   return Array.from(document.getElementsByTagNameNS(W_NS, 'p'))
 }
@@ -110,6 +146,10 @@ function blocksOf(document: XmlDocument): DocxBlock[] {
     style: paragraphStyle(paragraph),
     list: paragraph.getElementsByTagNameNS(W_NS, 'numPr').length > 0,
     inTable: inTable(paragraph),
+    outlineLevel: outlineLevelOf(paragraph),
+    numberingLevel: numberingLevelOf(paragraph),
+    indentLeft: indentLeftOf(paragraph),
+    bold: isBold(paragraph),
   }))
 }
 
@@ -190,6 +230,123 @@ function textOf(texts: XmlElement[]) {
   return texts.map((text) => text.textContent ?? '').join('')
 }
 
+type TextEntry = {
+  element: XmlElement
+  run: XmlElement | null
+  hyperlink: XmlElement | null
+  value: string
+}
+
+function textEntries(paragraph: XmlElement): TextEntry[] {
+  return editableTexts(paragraph).map((element) => {
+    let run: XmlElement | null = null
+    let hyperlink: XmlElement | null = null
+    let node: XmlNode | null = element.parentNode
+
+    while (node) {
+      if (node.nodeType === 1) {
+        const current = node as XmlElement
+        if (current.namespaceURI === W_NS) {
+          if (current.localName === 'hyperlink') hyperlink = current
+          if (current.localName === 'r') {
+            run = current
+            break
+          }
+        }
+      }
+      node = node.parentNode
+    }
+
+    return {
+      element,
+      run,
+      hyperlink,
+      value: element.textContent ?? '',
+    }
+  })
+}
+
+function stripLinkMarks(run: XmlElement) {
+  const properties = run.getElementsByTagNameNS(W_NS, 'rPr')[0]
+  if (!properties) return
+
+  for (const name of ['rStyle', 'color', 'u']) {
+    for (const node of Array.from(properties.getElementsByTagNameNS(W_NS, name))) {
+      node.parentNode?.removeChild(node)
+    }
+  }
+}
+
+function manualBulletPrefix(paragraph: XmlElement, full: string) {
+  if (paragraph.getElementsByTagNameNS(W_NS, 'numPr').length > 0) return ''
+  return /^(\s*[•▪◦‣·*-]\s+)/.exec(full)?.[1] ?? ''
+}
+
+function replaceWholeBlock(paragraph: XmlElement, content: string, prefix: string) {
+  const entries = textEntries(paragraph).filter((entry) => entry.value.trim())
+  if (entries.length === 0) {
+    throw new DocxError('That block has no text to replace.', 422)
+  }
+
+  const prefixEntry = prefix
+    ? entries.find(
+        (entry) =>
+          entry.value.startsWith(prefix) &&
+          entry.value.trim() === prefix.trim(),
+      ) ?? null
+    : null
+  const bodyEntries = entries.filter((entry) => entry !== prefixEntry)
+  const nonLink = bodyEntries.filter(
+    (entry) =>
+      !entry.hyperlink &&
+      !/^[•▪◦‣·*-]\s*$/.test(entry.value.trim()),
+  )
+  const chosen = [...(nonLink.length > 0 ? nonLink : bodyEntries)].sort(
+    (left, right) => right.value.length - left.value.length,
+  )[0]
+
+  if (!chosen?.run) {
+    if (prefixEntry?.run) {
+      prefixEntry.element.textContent = `${prefixEntry.value}${content}`
+      if (/^\s|\s$/.test(prefixEntry.element.textContent ?? '')) {
+        prefixEntry.element.setAttributeNS(XML_NS, 'xml:space', 'preserve')
+      }
+      return
+    }
+    throw new DocxError('That block has no editable run.', 422)
+  }
+
+  let textElement = chosen.element
+
+  if (chosen.hyperlink) {
+    const clone = chosen.run.cloneNode(true) as XmlElement
+    stripLinkMarks(clone)
+    chosen.hyperlink.parentNode?.insertBefore(clone, chosen.hyperlink.nextSibling)
+    chosen.hyperlink.removeChild(chosen.run)
+    if (!chosen.hyperlink.textContent?.trim()) {
+      chosen.hyperlink.parentNode?.removeChild(chosen.hyperlink)
+    }
+    textElement = clone.getElementsByTagNameNS(W_NS, 't')[0]
+  }
+
+  for (const entry of entries) {
+    if (entry.element !== textElement && entry !== prefixEntry) {
+      entry.element.textContent = ''
+    }
+  }
+
+  if (prefixEntry) {
+    prefixEntry.element.textContent = prefixEntry.value.slice(0, prefix.length)
+    textElement.textContent = content
+  } else {
+    textElement.textContent = prefix ? `${prefix}${content}` : content
+  }
+
+  if (/^\s|\s$/.test(textElement.textContent ?? '')) {
+    textElement.setAttributeNS(XML_NS, 'xml:space', 'preserve')
+  }
+}
+
 /**
  * Replace [start, end) in the concatenated run text. The first covered run keeps
  * its character properties, so the new text uses the same font. Surrounding text
@@ -232,9 +389,9 @@ function replaceRange(
 }
 
 /**
- * Replace text in a paragraph while keeping the first affected run's character
- * formatting (font, size, weight, colour). With `find`, only that substring is
- * replaced, so a role title can change without losing the dates beside it.
+ * Replace text in a paragraph while keeping a representative body run's
+ * character formatting (font, size, weight). With `find`, only that substring
+ * is replaced, so a role title can change without losing the dates beside it.
  * Callers address blocks by their stable `p:<index>` id.
  */
 export async function editDocx(
@@ -278,7 +435,11 @@ export async function editDocx(
       }
       replaceRange(texts, start, start + edit.find.length, edit.text)
     } else {
-      replaceRange(texts, 0, full.length, edit.text)
+      const prefix = manualBulletPrefix(paragraph, full)
+      const body = edit.text
+        .replace(/^\s*[•▪◦‣·*-]\s+/, '')
+        .trim()
+      replaceWholeBlock(paragraph, body, prefix)
     }
   }
 

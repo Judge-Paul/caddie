@@ -2,13 +2,14 @@ import type { CvClassification } from './cv-classification'
 import type { CompanyProfile, JdClassification } from './jd-classification'
 
 /**
- * A fact the candidate told us about their own work. Stories are kept in the
- * browser profile so a later JD can reuse confirmed evidence without asking
- * again. They are never written to a server database.
+ * A fact the candidate told us about their own work. Stories live in the
+ * candidate's account so a later JD can reuse confirmed evidence without asking
+ * again. They ground CV edits, cover letters and email drafts.
  */
 export type CvStory = {
   id: string
   roleId: string | null
+  projectId?: string | null
   company: string | null
   title: string | null
   gapLabel: string | null

@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../cloudflare'
 import type { CvBlock } from '../../shared/cv-classification'
+import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
 
 /**
  * The model sees numbered DOCX blocks, not a rendered PDF. That keeps every
@@ -7,11 +8,16 @@ import type { CvBlock } from '../../shared/cv-classification'
  */
 export const CV_SYSTEM_PROMPT = `You extract a CV into structured data for a CV matcher. The input is a list of text blocks from a DOCX. Each block has an id like p:12. Return one JSON object and nothing else.
 
+${PROMPT_SAFETY}
+
 Rules
 - Copy text verbatim. Never rewrite, summarise or invent. The CV's own words are the output.
 - Group experience into roles, one role per job. Company, title, dates and location may share one block. For each field add an anchor with the blockId and the exact substring in "find". If the field is the whole block, use null for find.
 - Bullets belong to the role above them. Each bullet is { "text": "...", "anchor": { "blockId": "p:6", "find": null } }.
 - Education and projects use the same idea. Put degrees in "degree" and institutions in "institution".
+- Projects can belong to a role: give every role an id like "role-1", and set a project's "roleId" to that id. A standalone side project uses null. Projects have name, description, product, url, dates, kind ("work", "client", "side", "open-source", "personal" or "unknown"), tech, bullets and anchors.
+- If a project is named only inside a role bullet, extract it as a project only when the sentence gives it a product or outcome; otherwise leave the sentence in the role bullet.
+- Project bullets follow the same anchor rule as role bullets.
 - skills, languages and certifications are flat lists of the exact terms stated, plus an anchor for the line they came from.
 - contact: name, headline, email, phone, location, links. Use null when absent, and anchors for the fields that exist.
 - summary: the CV's profile/summary paragraph verbatim, or null. Do not write a new summary.
@@ -40,19 +46,44 @@ Return exactly this shape:
   "summaryAnchor": { "blockId": "p:3", "find": null },
   "roles": [
     {
-      "company": "Northwind Labs",
+      "id": "role-1",
+      "company": "Anora.dev",
       "title": "Senior Frontend Engineer",
       "dates": "2021 — Present",
       "location": "Berlin",
       "summary": null,
       "anchors": {
-        "company": { "blockId": "p:5", "find": "Northwind Labs" },
+        "company": { "blockId": "p:5", "find": "Anora.dev" },
         "title": { "blockId": "p:5", "find": "Senior Frontend Engineer" },
         "dates": { "blockId": "p:5", "find": "2021 — Present" },
         "location": { "blockId": "p:5", "find": "Berlin" }
       },
       "bullets": [
         { "text": "Led the rebuild of the design system.", "anchor": { "blockId": "p:6", "find": null } }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "project-1",
+      "name": "Qartt",
+      "description": "Real-time product analytics dashboard for operational teams.",
+      "product": "real-time product analytics",
+      "url": "https://qartt.example",
+      "dates": "2023",
+      "kind": "work",
+      "roleId": "role-1",
+      "company": "Anora.dev",
+      "tech": ["React", "TypeScript", "D3"],
+      "anchors": {
+        "name": { "blockId": "p:7", "find": "Qartt" },
+        "description": { "blockId": "p:7", "find": "Real-time product analytics dashboard for operational teams." },
+        "url": { "blockId": "p:7", "find": "https://qartt.example" },
+        "dates": { "blockId": "p:7", "find": "2023" },
+        "tech": null
+      },
+      "bullets": [
+        { "text": "Built the dashboard and real-time data layer.", "anchor": { "blockId": "p:8", "find": null } }
       ]
     }
   ],
@@ -69,7 +100,6 @@ Return exactly this shape:
       }
     }
   ],
-  "projects": [],
   "skills": ["TypeScript", "React"],
   "skillsAnchor": { "blockId": "p:14", "find": null },
   "languages": [],
@@ -100,7 +130,7 @@ export function cvMessages(blocks: CvBlock[]): ChatMessage[] {
     { role: 'system', content: CV_SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Extract this CV. Respond with the JSON object only.\n\n${body}`,
+      content: `Extract this CV. Respond with the JSON object only.\n\n${untrusted('cv_blocks', body, 80_000)}`,
     },
   ]
 }

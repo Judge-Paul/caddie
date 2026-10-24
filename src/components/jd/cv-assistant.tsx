@@ -2,16 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fileToBase64 } from '@/lib/docx'
-import { proposeCvFit } from '@/lib/fit'
+import { planCvEdits } from '@/lib/plan'
 import { cn } from 'cn'
 import type { CvClassification } from '@shared/cv-classification'
-import type {
-  CvStory,
-  FitGap,
-  FitMessage,
-  FitProposal,
-  FitRequest,
-} from '@shared/cv-fit'
+import type { CvPlan } from '@shared/cv-plan'
+import type { CvStory, FitGap, FitMessage } from '@shared/cv-fit'
 import type { CompanyProfile, JdClassification } from '@shared/jd-classification'
 import {
   AlertCircle,
@@ -34,7 +29,7 @@ type CvAssistantProps = {
   needsDeepRead: boolean
   onClassifyCv: () => void
   onDeepReadCv: () => void
-  onApplyEdit: (blockId: string, text: string) => Promise<void>
+  onApplyEdits: (edits: { blockId: string; text: string }[]) => Promise<void>
   onSaveStory: (story: CvStory) => void
   jd: JdClassification | null
   profile: CompanyProfile | null
@@ -58,6 +53,25 @@ function newStoryId() {
   return `story-${Date.now()}`
 }
 
+function relevantStories(stories: CvStory[], gaps: FitGap[]) {
+  const terms = gaps
+    .flatMap((gap) => [gap.label, ...gap.terms])
+    .map((term) => term.toLowerCase())
+
+  const scored = stories.map((story) => {
+    const text = `${story.userText} ${story.bullet ?? ''} ${story.skills.join(' ')}`.toLowerCase()
+    return {
+      story,
+      score: terms.reduce((total, term) => (text.includes(term) ? total + 1 : total), 0),
+    }
+  })
+
+  return scored
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 10)
+    .map((entry) => entry.story)
+}
+
 export function CvAssistant({
   open,
   onClose,
@@ -68,7 +82,7 @@ export function CvAssistant({
   needsDeepRead,
   onClassifyCv,
   onDeepReadCv,
-  onApplyEdit,
+  onApplyEdits,
   onSaveStory,
   jd,
   profile,
@@ -76,46 +90,23 @@ export function CvAssistant({
   initialGap,
   stories,
 }: CvAssistantProps) {
-  const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const requestRef = useRef<AbortController | null>(null)
 
-  const [gap, setGap] = useState<FitGap | null>(null)
-  const [roleId, setRoleId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [history, setHistory] = useState<FitMessage[]>([])
-  const [proposal, setProposal] = useState<FitProposal | null>(null)
+  const [plan, setPlan] = useState<CvPlan | null>(null)
   const [question, setQuestion] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState<'fit' | 'apply' | null>(null)
+  const [busy, setBusy] = useState<'plan' | 'apply' | null>(null)
   const [excluded, setExcluded] = useState<string[]>([])
   const [lastMessage, setLastMessage] = useState('')
   const [applied, setApplied] = useState(false)
 
   useEffect(() => {
     if (!open) return
-
-    setGap(initialGap ?? gaps[0] ?? null)
-    setProposal(null)
-    setQuestion(null)
-    setError('')
-    setHistory([])
-    setExcluded([])
-    setApplied(false)
     closeRef.current?.focus()
-    // Only when the drawer opens or a gap chip targets it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialGap])
-
-  useEffect(() => {
-    if (!cv) {
-      setRoleId(null)
-      return
-    }
-    if (!cv.roles.some((role) => role.id === roleId)) {
-      setRoleId(cv.roles[0]?.id ?? null)
-    }
-  }, [cv, roleId])
+  }, [open])
 
   useEffect(() => {
     if (!open) requestRef.current?.abort()
@@ -123,11 +114,9 @@ export function CvAssistant({
 
   useEffect(() => {
     if (!open) return
-
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
-
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
@@ -139,46 +128,8 @@ export function CvAssistant({
     [],
   )
 
-  function resetConversation() {
-    setProposal(null)
-    setQuestion(null)
-    setError('')
-    setHistory([])
-    setExcluded([])
-    setApplied(false)
-    setLastMessage('')
-  }
-
-  function chooseGap(next: FitGap) {
-    setGap(next)
-    resetConversation()
-  }
-
-  function chooseRole(next: string) {
-    setRoleId(next)
-    resetConversation()
-  }
-
-  function relevantStories() {
-    if (!gap) return []
-    return stories
-      .filter(
-        (story) =>
-          story.roleId === roleId ||
-          story.gapLabel === gap.label ||
-          story.skills.some((skill) =>
-            gap.terms.some((term) => term.toLowerCase() === skill.toLowerCase()),
-          ),
-      )
-      .slice(0, 8)
-  }
-
-  async function runFit(
-    text: string,
-    nextExcluded: string[],
-    appendUser: boolean,
-  ) {
-    if (!docx || !cv || !jd || !gap || !roleId || busy) return
+  async function runPlan(text: string, nextExcluded: string[], appendUser: boolean) {
+    if (!docx || !cv || !jd || busy) return
 
     const priorHistory = history
     const nextHistory = appendUser
@@ -188,40 +139,40 @@ export function CvAssistant({
     if (appendUser) setHistory(nextHistory)
     setLastMessage(text)
     setMessage('')
-    setProposal(null)
+    setPlan(null)
     setQuestion(null)
     setError('')
     setApplied(false)
-    setBusy('fit')
+    setBusy('plan')
 
     requestRef.current?.abort()
     const controller = new AbortController()
     requestRef.current = controller
 
     try {
-      const input: FitRequest = {
-        docx: await fileToBase64(docx),
-        cv,
-        jd,
-        company: profile,
-        gap,
-        roleId,
-        message: text,
-        history: priorHistory,
-        stories: relevantStories(),
-        excludeBlockIds: nextExcluded,
-      }
-
-      const response = await proposeCvFit(input, controller.signal)
+      const response = await planCvEdits(
+        {
+          docx: await fileToBase64(docx),
+          cv,
+          jd,
+          company: profile,
+          gaps,
+          message: text,
+          history: priorHistory,
+          stories: relevantStories(stories, gaps),
+          excludeBlockIds: nextExcluded,
+        },
+        controller.signal,
+      )
       if (controller.signal.aborted) return
 
-      if (response.type === 'proposal') {
-        setProposal(response)
+      if (response.type === 'plan') {
+        setPlan(response)
         setHistory([
           ...nextHistory,
           {
             role: 'assistant',
-            content: `I drafted a bullet that keeps the CV at ${response.lineCount.before} lines: “${response.bullet}”`,
+            content: `I found ${response.edits.length} safe ${response.edits.length === 1 ? 'edit' : 'edits'} that ${response.edits.length === 1 ? 'keeps' : 'keep'} the CV layout.`,
           },
         ])
       } else if (response.type === 'question') {
@@ -236,9 +187,7 @@ export function CvAssistant({
     } catch (caught) {
       if (controller.signal.aborted) return
       setError(
-        caught instanceof Error
-          ? caught.message
-          : 'The CV assistant could not draft that.',
+        caught instanceof Error ? caught.message : 'The CV planner could not draft that.',
       )
     } finally {
       if (requestRef.current === controller) requestRef.current = null
@@ -249,59 +198,60 @@ export function CvAssistant({
   function send() {
     const text = message.trim()
     if (!text) return
-    void runFit(text, excluded, true)
+    void runPlan(text, excluded, true)
   }
 
   function tryAnother() {
-    if (!proposal || !lastMessage) return
-    const nextExcluded = [...excluded, proposal.target.blockId]
+    if (!plan || !lastMessage) return
+    const nextExcluded = [...excluded, ...plan.edits.map((edit) => edit.blockId)]
     setExcluded(nextExcluded)
-    void runFit(lastMessage, nextExcluded, false)
+    void runPlan(lastMessage, nextExcluded, false)
   }
 
   async function approve() {
-    if (!proposal || !gap || busy) return
+    if (!plan || busy) return
 
     setBusy('apply')
     setError('')
 
     try {
-      await onApplyEdit(proposal.target.blockId, proposal.bullet)
-
-      const now = new Date().toISOString()
-      const statement = `${lastMessage} ${proposal.bullet}`.toLowerCase()
-      const confirmedSkills = gap.terms.filter((term) =>
-        statement.includes(term.toLowerCase()),
+      await onApplyEdits(
+        plan.edits.map((edit) => ({ blockId: edit.blockId, text: edit.text })),
       )
 
-      onSaveStory({
-        id: newStoryId(),
-        roleId: proposal.role.id,
-        company: proposal.role.company,
-        title: proposal.role.title,
-        gapLabel: proposal.gapLabel,
-        skills: confirmedSkills.length > 0 ? confirmedSkills : [gap.label],
-        userText: lastMessage,
-        bullet: proposal.bullet,
-        history: history.slice(-10),
-        createdAt: now,
-        updatedAt: now,
-      })
+      const now = new Date().toISOString()
+      for (const edit of plan.edits) {
+        const role = cv?.roles.find((entry) => entry.id === edit.roleId) ?? null
+        const gap = gaps.find((entry) => edit.gapLabels.includes(entry.label))
+        onSaveStory({
+          id: newStoryId(),
+          roleId: edit.roleId,
+          projectId: edit.projectId,
+          company: role?.company ?? null,
+          title: role?.title ?? null,
+          gapLabel: edit.gapLabels[0] ?? null,
+          skills: gap?.terms.length ? gap.terms : edit.gapLabels,
+          userText: lastMessage,
+          bullet: edit.text,
+          history: history.slice(-10),
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
 
       setApplied(true)
-      setProposal(null)
+      setPlan(null)
       setQuestion(null)
       setHistory((current) => [
         ...current,
         {
           role: 'assistant',
-          content:
-            'Updated your CV and stored this fact in your profile for future postings.',
+          content: `Updated ${plan.edits.length} ${plan.edits.length === 1 ? 'block' : 'blocks'} and kept the CV layout.`,
         },
       ])
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : 'That bullet could not be applied.',
+        caught instanceof Error ? caught.message : 'That edit plan could not be applied.',
       )
     } finally {
       setBusy(null)
@@ -311,7 +261,7 @@ export function CvAssistant({
   if (!open) return null
 
   const canEdit = Boolean(docx)
-  const roles = cv?.roles ?? []
+  const canPlan = Boolean(docx && cv && jd)
 
   return (
     <>
@@ -322,24 +272,23 @@ export function CvAssistant({
       />
 
       <div
-        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="CV assistant"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[430px] flex-col border-l border-border bg-card shadow-[-24px_0_60px_-40px_rgba(13,21,38,0.45)]"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col border-l border-border bg-card shadow-[-24px_0_60px_-40px_rgba(13,21,38,0.45)]"
       >
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-brand-600">
               <Sparkles className="size-4" strokeWidth={1.75} />
-              <Eyebrow>CV assistant</Eyebrow>
+              <Eyebrow>CV planner</Eyebrow>
             </div>
             <h2 className="mt-1.5 text-[15px] leading-none font-semibold tracking-[-0.015em] text-ink">
-              Close a gap with your own work
+              Put your work where it matters
             </h2>
-            <p className="mt-1.5 max-w-[38ch] text-[11.5px] leading-[1.45] text-muted-foreground">
-              Tell Caddie what you did. It drafts one bullet, replaces the least
-              relevant one, and keeps the same line count.
+            <p className="mt-1.5 max-w-[40ch] text-[11.5px] leading-[1.45] text-muted-foreground">
+              Show us the gaps, tell us what you have actually done, and Caddie will
+              find the safest blocks to change without moving the page.
             </p>
           </div>
           <Button
@@ -354,7 +303,7 @@ export function CvAssistant({
           </Button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           {!canEdit ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
               <div className="flex size-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
@@ -365,7 +314,7 @@ export function CvAssistant({
               </p>
               <p className="mt-1 max-w-[34ch] text-[12px] leading-[1.5] text-muted-foreground">
                 PDFs are read-only. A DOCX keeps the original fonts and lets
-                Caddie replace a bullet without changing the layout.
+                Caddie replace anchored text without changing the layout.
               </p>
             </div>
           ) : cvStatus === 'idle' ? (
@@ -373,12 +322,10 @@ export function CvAssistant({
               <div className="flex size-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
                 <Sparkles className="size-5" strokeWidth={1.75} />
               </div>
-              <p className="mt-3 text-[13px] font-medium text-ink">
-                Read your CV first
-              </p>
-              <p className="mt-1 max-w-[34ch] text-[12px] leading-[1.5] text-muted-foreground">
-                Caddie needs your roles and bullets to know where a fact belongs
-                and which bullet is safe to replace.
+              <p className="mt-3 text-[13px] font-medium text-ink">Read your CV first</p>
+              <p className="mt-1 max-w-[36ch] text-[12px] leading-[1.5] text-muted-foreground">
+                Caddie needs your roles, projects and bullets to understand where a
+                fact belongs and what is safe to change.
               </p>
               <Button className="mt-4 max-sm:h-11" onClick={onClassifyCv}>
                 Read my CV
@@ -390,26 +337,17 @@ export function CvAssistant({
             </div>
           ) : cvStatus === 'loading' ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-              <LoaderCircle
-                className="size-5 animate-spin text-brand-600"
-                strokeWidth={1.75}
-              />
-              <p className="mt-3 text-[13px] font-medium text-ink">
-                Reading your CV
-              </p>
+              <LoaderCircle className="size-5 animate-spin text-brand-600" strokeWidth={1.75} />
+              <p className="mt-3 text-[13px] font-medium text-ink">Reading your CV</p>
               <p className="mt-1 max-w-[34ch] text-[12px] leading-[1.5] text-muted-foreground">
-                Mapping roles and bullets. A deep read may take a minute or two.
+                Mapping roles, projects and bullets. A deep read may take a minute or
+                two.
               </p>
             </div>
           ) : cvStatus === 'error' ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-              <AlertCircle
-                className="size-5 text-muted-foreground"
-                strokeWidth={1.75}
-              />
-              <p className="mt-3 text-[13px] font-medium text-ink">
-                Could not read this CV
-              </p>
+              <AlertCircle className="size-5 text-muted-foreground" strokeWidth={1.75} />
+              <p className="mt-3 text-[13px] font-medium text-ink">Could not read this CV</p>
               <p className="mt-1 max-w-[38ch] text-[12px] leading-[1.5] text-muted-foreground">
                 {cvError}
               </p>
@@ -429,104 +367,62 @@ export function CvAssistant({
                   <Check className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
                   <div>
                     <p className="text-[12px] font-medium">
-                      Bullet replaced. The line count is unchanged.
+                      Plan applied. The CV layout is unchanged.
                     </p>
                     <p className="mt-0.5 text-[11px] leading-[1.4] text-muted-foreground">
-                      The fact is saved to your account for future postings.
+                      The facts are saved to your account for future postings.
                     </p>
                   </div>
                 </div>
               ) : null}
 
-              <section className="space-y-1.5">
+              <section className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Eyebrow>Gap to close</Eyebrow>
-                  {gap ? (
-                    <span
-                      className={cn(
-                        'rounded-md px-1.5 py-0.5 text-[9.5px] font-medium',
-                        gap.kind === 'must'
-                          ? 'bg-mark/50 text-mark-foreground'
-                          : 'bg-related/60 text-related-foreground',
-                      )}
+                  <Eyebrow>Missing from your CV</Eyebrow>
+                  {needsDeepRead ? (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-muted-foreground hover:text-ink max-sm:h-11"
+                      onClick={onDeepReadCv}
                     >
-                      {gap.kind === 'must' ? 'Must have' : 'Worth showing'}
-                    </span>
+                      Deep read
+                    </Button>
                   ) : null}
                 </div>
+                <p className="text-[11px] leading-[1.45] text-muted-foreground">
+                  Tell us if you have worked with any of these. Mention the company or
+                  project; Caddie will work out where it belongs.
+                </p>
                 {gaps.length === 0 ? (
-                  <p className="text-[11.5px] leading-[1.5] text-muted-foreground">
-                    This CV already covers every must-have in the posting.
+                  <p className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[11.5px] leading-[1.45] text-muted-foreground">
+                    This CV already covers every must-have. You can still add work
+                    worth showing.
                   </p>
                 ) : (
-                  <select
-                    value={gap?.label ?? ''}
-                    onChange={(event) => {
-                      const next = gaps.find(
-                        (entry) => entry.label === event.target.value,
-                      )
-                      if (next) chooseGap(next)
-                    }}
-                    aria-label="Gap to close"
-                    className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[12px] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 max-sm:h-11"
-                  >
-                    {gaps.map((entry) => (
-                      <option key={`${entry.kind}-${entry.label}`} value={entry.label}>
-                        {entry.label} — {entry.kind === 'must' ? 'must have' : 'worth showing'}
-                      </option>
+                  <div className="flex flex-wrap gap-1">
+                    {gaps.slice(0, 14).map((gap) => (
+                      <span
+                        key={`${gap.kind}-${gap.label}`}
+                        className={cn(
+                          'rounded-md border px-1.5 py-[1px] text-[10.5px] font-medium',
+                          gap.kind === 'must'
+                            ? 'border-mark-line/60 bg-mark/50 text-mark-foreground'
+                            : 'border-related-line/70 bg-related/60 text-related-foreground',
+                          initialGap?.label === gap.label ? 'ring-2 ring-brand-200' : '',
+                        )}
+                      >
+                        {gap.label}
+                      </span>
                     ))}
-                  </select>
+                    {gaps.length > 14 ? (
+                      <span className="px-1.5 py-[1px] text-[10.5px] text-muted-foreground">
+                        +{gaps.length - 14} more
+                      </span>
+                    ) : null}
+                  </div>
                 )}
               </section>
-
-              <section className="space-y-1.5">
-                <Eyebrow>Where did you do it?</Eyebrow>
-                {roles.length === 0 ? (
-                  <p className="text-[11.5px] text-muted-foreground">
-                    No roles were found in this CV.
-                  </p>
-                ) : (
-                  <select
-                    value={roleId ?? ''}
-                    onChange={(event) => chooseRole(event.target.value)}
-                    aria-label="Role where you did this"
-                    className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[12px] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 max-sm:h-11"
-                  >
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {[role.title, role.company, role.dates]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </section>
-
-              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
-                <p className="max-w-[26ch] text-[10px] leading-[1.4] text-muted-foreground">
-                  {needsDeepRead
-                    ? 'The fast read may be partial. Try a slower Gemma read.'
-                    : 'Unusual layout? Try a slower Gemma read.'}
-                </p>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="shrink-0 text-muted-foreground hover:text-ink max-sm:h-11"
-                  onClick={onDeepReadCv}
-                >
-                  Deep read
-                </Button>
-              </div>
-
-              {cvError ? (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] leading-[1.45] text-muted-foreground"
-                >
-                  {cvError}
-                </p>
-              ) : null}
 
               {history.length > 0 ? (
                 <section className="space-y-1.5">
@@ -555,45 +451,63 @@ export function CvAssistant({
                 </div>
               ) : null}
 
-              {proposal ? (
-                <section className="space-y-2.5 rounded-xl border border-border bg-card p-3">
-                  <div>
-                    <Eyebrow>Replace this bullet</Eyebrow>
-                    <p className="mt-1 text-[11.5px] leading-[1.45] text-muted-foreground line-through">
-                      {proposal.target.text}
-                    </p>
-                  </div>
-                  <div>
-                    <Eyebrow>With</Eyebrow>
-                    <p className="mt-1 text-[12px] leading-[1.5] font-medium text-ink">
-                      {proposal.bullet}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground">
-                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 tabular-nums">
-                      Lines {proposal.lineCount.before} → {proposal.lineCount.after}
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 tabular-nums">
-                      Pages {proposal.lineCount.pagesBefore} → {proposal.lineCount.pagesAfter}
-                    </span>
-                  </div>
-                  {proposal.rationale ? (
-                    <p className="text-[10.5px] leading-[1.45] text-muted-foreground">
-                      {proposal.rationale}
-                    </p>
-                  ) : null}
-                  {proposal.factsUsed.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {proposal.factsUsed.map((fact) => (
-                        <span
-                          key={fact}
-                          className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[9.5px] text-brand-700"
-                        >
-                          {fact}
-                        </span>
-                      ))}
+              {plan ? (
+                <section className="space-y-3 rounded-xl border border-border bg-card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Eyebrow>Proposed plan</Eyebrow>
+                      <p className="mt-1 text-[11.5px] leading-[1.45] text-muted-foreground">
+                        {plan.note}
+                      </p>
                     </div>
-                  ) : null}
+                    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[9.5px] tabular-nums text-muted-foreground">
+                      {plan.edits.length} {plan.edits.length === 1 ? 'edit' : 'edits'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {plan.edits.map((edit) => (
+                      <div key={edit.blockId} className="rounded-lg border border-border/70 p-2.5">
+                        <p className="text-[9.5px] font-medium text-muted-foreground">
+                          {edit.targetLabel}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground line-through">
+                          {edit.targetText}
+                        </p>
+                        <p className="mt-1.5 text-[12px] leading-[1.5] font-medium text-ink">
+                          {edit.text}
+                        </p>
+                        {edit.gapLabels.length > 0 ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {edit.gapLabels.map((label) => (
+                              <span
+                                key={label}
+                                className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[9.5px] text-brand-700"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {edit.rationale ? (
+                          <p className="mt-1.5 text-[10px] leading-[1.4] text-muted-foreground">
+                            {edit.rationale}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground">
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 tabular-nums">
+                      Lines {plan.lineCount.before} → {plan.lineCount.after}
+                    </span>
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 tabular-nums">
+                      Pages {plan.lineCount.pagesBefore} → {plan.lineCount.pagesAfter}
+                    </span>
+                    <span>{plan.protectedCount} protected {plan.protectedCount === 1 ? 'block' : 'blocks'}</span>
+                  </div>
+
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       size="sm"
@@ -601,10 +515,8 @@ export function CvAssistant({
                       onClick={() => void approve()}
                       disabled={busy !== null}
                     >
-                      {busy === 'apply' ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : null}
-                      Replace bullet
+                      {busy === 'apply' ? <LoaderCircle className="animate-spin" /> : null}
+                      Apply plan
                     </Button>
                     <Button
                       variant="outline"
@@ -619,7 +531,7 @@ export function CvAssistant({
                       variant="ghost"
                       size="sm"
                       className="text-muted-foreground hover:text-ink max-sm:h-11"
-                      onClick={() => setProposal(null)}
+                      onClick={() => setPlan(null)}
                       disabled={busy !== null}
                     >
                       Discard
@@ -646,46 +558,42 @@ export function CvAssistant({
               htmlFor="cv-assistant-message"
               className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase"
             >
-              What did you do?
+              What have you worked with?
             </label>
-            <div className="mt-1.5 flex items-end gap-1.5">
-              <textarea
-                id="cv-assistant-message"
-                value={message}
-                onChange={(event) => setMessage(event.target.value.slice(0, 1000))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    send()
-                  }
-                }}
-                rows={2}
-                placeholder={
-                  gap && roleId
-                    ? `e.g. I built and scaled ${gap.label.toLowerCase()} at that role…`
-                    : 'Pick a gap and a role first.'
+            <textarea
+              id="cv-assistant-message"
+              value={message}
+              onChange={(event) => setMessage(event.target.value.slice(0, 4_000))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  send()
                 }
-                disabled={!gap || !roleId || busy !== null}
-                className="min-h-[58px] w-full resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-[12px] leading-[1.45] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
-              />
+              }}
+              rows={6}
+              placeholder={
+                gaps[0]
+                  ? `e.g. I worked with ${gaps[0].label.toLowerCase()} on Qartt at Anora.dev…`
+                  : 'Tell us about work the CV does not show yet…'
+              }
+              disabled={!canPlan || busy !== null}
+              className="mt-1.5 min-h-[132px] w-full resize-y rounded-lg border border-border bg-card px-2.5 py-2 text-[12px] leading-[1.5] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+            />
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <p className="max-w-[34ch] text-[9.5px] leading-[1.4] text-muted-foreground">
+                Only what you write is used. Mention projects and companies; Caddie
+                will ask if it cannot place them.
+              </p>
               <Button
                 size="icon"
                 className="size-10 shrink-0"
                 onClick={send}
-                disabled={!message.trim() || !gap || !roleId || busy !== null}
-                aria-label="Send to CV assistant"
+                disabled={!message.trim() || !canPlan || busy !== null}
+                aria-label="Plan CV edits"
               >
-                {busy === 'fit' ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <Send />
-                )}
+                {busy === 'plan' ? <LoaderCircle className="animate-spin" /> : <Send />}
               </Button>
             </div>
-            <p className="mt-1.5 text-[9.5px] leading-[1.4] text-muted-foreground">
-              Only what you write is used. Nothing is invented. Facts are stored
-              in your account.
-            </p>
           </footer>
         ) : null}
       </div>

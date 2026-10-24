@@ -8,6 +8,8 @@ import type {
   ApplicationDetail,
   ApplicationStatus,
   ApplicationSummary,
+  CoverLetterDraft,
+  EmailDraft,
   UpdateApplicationPatch,
 } from '../shared/account'
 import type { CvStory } from '../shared/cv-fit'
@@ -54,6 +56,11 @@ type ApplicationDoc = {
   company: string | null
   status: ApplicationStatus
   classification: ClassificationResult | null
+  coverLetter?: CoverLetterDraft | null
+  emailDraft?: EmailDraft | null
+  completedAt?: Date | null
+  sentAt?: Date | null
+  sentTo?: string | null
   cv: StoredCv
   createdAt: Date
   updatedAt: Date
@@ -120,6 +127,11 @@ function summary(doc: ApplicationDoc): ApplicationSummary {
     company: doc.company,
     status: doc.status,
     cv: cvDto(doc.cv),
+    hasCoverLetter: Boolean(doc.coverLetter?.text?.trim()),
+    hasEmailDraft: Boolean(doc.emailDraft?.body?.trim()),
+    completedAt: doc.completedAt?.toISOString() ?? null,
+    sentAt: doc.sentAt?.toISOString() ?? null,
+    sentTo: doc.sentTo ?? null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   }
@@ -130,6 +142,8 @@ function detail(doc: ApplicationDoc): ApplicationDetail {
     ...summary(doc),
     jdText: doc.jdText,
     classification: doc.classification,
+    coverLetter: doc.coverLetter ?? null,
+    emailDraft: doc.emailDraft ?? null,
   }
 }
 
@@ -182,7 +196,7 @@ async function profileOf(userId: string) {
 export async function getMe(
   userId: string,
   user: AccountUser,
-): Promise<AccountMe> {
+): Promise<Omit<AccountMe, 'sending'>> {
   const store = requireMongo()
   const [profile, applications, stories] = await Promise.all([
     profileOf(userId),
@@ -353,6 +367,11 @@ export async function createApplication(userId: string, jdText: string) {
     company: null,
     status: 'draft',
     classification: null,
+    coverLetter: null,
+    emailDraft: null,
+    completedAt: null,
+    sentAt: null,
+    sentTo: null,
     cv,
     createdAt: now,
     updatedAt: now,
@@ -423,6 +442,13 @@ export async function updateApplication(
     .findOne({ _id, userId })
   if (!current) throw new AccountError('Application not found.', 404)
 
+  if (current.sentAt || current.completedAt) {
+    throw new AccountError(
+      'This application is locked after sending or completion.',
+      409,
+    )
+  }
+
   const set: Record<string, unknown> = { updatedAt: new Date() }
 
   if (typeof patch.jdText === 'string' && patch.jdText !== current.jdText) {
@@ -446,6 +472,52 @@ export async function updateApplication(
     }
   }
 
+  if (patch.coverLetter !== undefined) {
+    if (patch.coverLetter === null) {
+      set.coverLetter = null
+    } else {
+      const text =
+        typeof patch.coverLetter.text === 'string'
+          ? patch.coverLetter.text.trim()
+          : ''
+      if (text.length > 20_000) {
+        throw new AccountError('That cover letter is too long.', 413)
+      }
+      set.coverLetter = {
+        text,
+        updatedAt: new Date().toISOString(),
+      }
+    }
+  }
+
+  if (patch.emailDraft !== undefined) {
+    if (patch.emailDraft === null) {
+      set.emailDraft = null
+    } else {
+      const to =
+        typeof patch.emailDraft.to === 'string'
+          ? patch.emailDraft.to.trim().slice(0, 320)
+          : ''
+      const subject =
+        typeof patch.emailDraft.subject === 'string'
+          ? patch.emailDraft.subject.trim().slice(0, 200)
+          : ''
+      const body =
+        typeof patch.emailDraft.body === 'string'
+          ? patch.emailDraft.body.trim()
+          : ''
+      if (body.length > 20_000) {
+        throw new AccountError('That email draft is too long.', 413)
+      }
+      set.emailDraft = {
+        to,
+        subject,
+        body,
+        updatedAt: new Date().toISOString(),
+      }
+    }
+  }
+
   if (patch.status !== undefined) set.status = patch.status
 
   const updated = await store.db
@@ -453,6 +525,55 @@ export async function updateApplication(
     .findOneAndUpdate(
       { _id, userId },
       { $set: set },
+      { returnDocument: 'after' },
+    )
+  if (!updated) throw new AccountError('Application not found.', 404)
+  return detail(updated)
+}
+
+export async function markApplicationSent(
+  userId: string,
+  id: string,
+  sentTo: string,
+) {
+  const store = requireMongo()
+  const current = await store.db
+    .collection<ApplicationDoc>('applications')
+    .findOne({ _id: objectId(id), userId })
+  if (!current) throw new AccountError('Application not found.', 404)
+  if (current.completedAt) {
+    throw new AccountError('This application is already completed.', 409)
+  }
+
+  const now = new Date()
+  const updated = await store.db
+    .collection<ApplicationDoc>('applications')
+    .findOneAndUpdate(
+      { _id: objectId(id), userId },
+      { $set: { sentAt: now, sentTo, updatedAt: now } },
+      { returnDocument: 'after' },
+    )
+  if (!updated) throw new AccountError('Application not found.', 404)
+  return detail(updated)
+}
+
+export async function completeApplication(userId: string, id: string) {
+  const store = requireMongo()
+  const current = await store.db
+    .collection<ApplicationDoc>('applications')
+    .findOne({ _id: objectId(id), userId })
+  if (!current) throw new AccountError('Application not found.', 404)
+  if (current.sentAt) {
+    throw new AccountError('This application has already been sent.', 409)
+  }
+  if (current.completedAt) return detail(current)
+
+  const now = new Date()
+  const updated = await store.db
+    .collection<ApplicationDoc>('applications')
+    .findOneAndUpdate(
+      { _id: objectId(id), userId },
+      { $set: { completedAt: now, updatedAt: now } },
       { returnDocument: 'after' },
     )
   if (!updated) throw new AccountError('Application not found.', 404)
@@ -470,6 +591,12 @@ export async function saveApplicationCv(
     .collection<ApplicationDoc>('applications')
     .findOne({ _id, userId })
   if (!current) throw new AccountError('Application not found.', 404)
+  if (current.sentAt || current.completedAt) {
+    throw new AccountError(
+      'This application is locked after sending or completion.',
+      409,
+    )
+  }
   if (current.cv.kind !== 'docx') {
     throw new AccountError('Upload a DOCX base CV to customize this application.', 409)
   }

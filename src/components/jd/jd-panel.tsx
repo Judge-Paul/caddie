@@ -41,7 +41,7 @@ type JdPanelProps = {
   docx: File | null
   onClassifyCv: () => void
   onDeepReadCv: () => void
-  onApplyCvEdit: (blockId: string, text: string) => Promise<void>
+  onApplyCvEdits: (edits: { blockId: string; text: string }[]) => Promise<void>
   stories: CvStory[]
   onSaveStory: (story: CvStory) => void
   assistantOpen: boolean
@@ -53,6 +53,7 @@ type JdPanelProps = {
   autoClassify?: boolean
   showSample?: boolean
   onClassified?: (result: ClassificationResult) => void
+  locked?: boolean
 }
 
 const MAX_GAP_CHIPS = 4
@@ -94,7 +95,7 @@ export function JdPanel({
   docx,
   onClassifyCv,
   onDeepReadCv,
-  onApplyCvEdit,
+  onApplyCvEdits,
   stories,
   onSaveStory,
   assistantOpen,
@@ -106,6 +107,7 @@ export function JdPanel({
   autoClassify = false,
   showSample = true,
   onClassified,
+  locked = false,
 }: JdPanelProps) {
   const [mode, setMode] = useState<'edit' | 'review' | 'data'>(
     initialClassification || autoClassify ? 'review' : 'edit',
@@ -214,6 +216,7 @@ export function JdPanel({
   }, [result, score, signals])
 
   function openAssistant(gap?: FitGap) {
+    if (locked) return
     setAssistantGap(gap ?? fitGaps[0] ?? null)
     onAssistantOpen()
   }
@@ -256,12 +259,14 @@ export function JdPanel({
   }
 
   function handleChange(next: string) {
+    if (locked) return
     resetClassification()
     onChange(next)
     if (!next.trim()) setMode('edit')
   }
 
   async function runClassification(input: string = value) {
+    if (locked) return
     const text = input.trim()
     if (text.length === 0) return
 
@@ -345,6 +350,7 @@ export function JdPanel({
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (locked) return
     const pasted = event.clipboardData.getData('text')
     if (!pasted) return
 
@@ -367,6 +373,7 @@ export function JdPanel({
   }
 
   function handleLoadSample() {
+    if (locked) return
     resetClassification()
     const text = onLoadSample()
     openReview()
@@ -374,6 +381,7 @@ export function JdPanel({
   }
 
   function handleClear() {
+    if (locked) return
     resetClassification()
     onChange('')
     setMode('edit')
@@ -381,6 +389,7 @@ export function JdPanel({
   }
 
   function handleEdit() {
+    if (locked) return
     resetClassification()
     setMode('edit')
     requestAnimationFrame(() => textareaRef.current?.focus())
@@ -429,18 +438,20 @@ export function JdPanel({
             <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
             <span className="min-w-0">{error}</span>
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 bg-card"
-            onClick={errorCode === 'not-a-jd' ? handleEdit : () => void runClassification()}
-          >
-            {errorCode === 'not-a-jd' ? 'Edit posting' : 'Try again'}
-          </Button>
+          {!locked ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 bg-card"
+              onClick={errorCode === 'not-a-jd' ? handleEdit : () => void runClassification()}
+            >
+              {errorCode === 'not-a-jd' ? 'Edit posting' : 'Try again'}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
-      {hasText && status === 'idle' && mode !== 'data' ? (
+      {hasText && status === 'idle' && mode !== 'data' && !locked ? (
         <div className="flex shrink-0 items-center justify-between gap-3 border-y border-border/70 bg-muted/30 px-5 py-2.5">
           <span className="text-[11.5px] text-muted-foreground">
             Read the posting to score it against your CV.
@@ -494,8 +505,9 @@ export function JdPanel({
                         },
                       )
                     }
-                    title="Draft a bullet for this gap"
-                    className="rounded-md border border-mark-line/60 bg-mark/50 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-mark-foreground transition-colors hover:bg-mark"
+                    disabled={locked}
+                    title={locked ? 'Locked after sending or completion' : 'Draft a bullet for this gap'}
+                    className="rounded-md border border-mark-line/60 bg-mark/50 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-mark-foreground transition-colors hover:bg-mark disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {gap.term}
                   </button>
@@ -528,8 +540,9 @@ export function JdPanel({
                         },
                       )
                     }
-                    title="Draft a bullet for this relevant experience"
-                    className="rounded-md border border-related-line/70 bg-related/60 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-related-foreground transition-colors hover:bg-related"
+                    disabled={locked}
+                    title={locked ? 'Locked after sending or completion' : 'Draft a bullet for this relevant experience'}
+                    className="rounded-md border border-related-line/70 bg-related/60 px-1.5 py-[1px] text-left text-[10.5px] font-medium text-related-foreground transition-colors hover:bg-related disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {item.term}
                   </button>
@@ -561,9 +574,11 @@ export function JdPanel({
       {hasText ? (
         <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center rounded-lg bg-muted p-0.5">
-            <ModeButton active={mode === 'edit'} onClick={() => setMode('edit')}>
-              Paste
-            </ModeButton>
+            {!locked ? (
+              <ModeButton active={mode === 'edit'} onClick={() => setMode('edit')}>
+                Paste
+              </ModeButton>
+            ) : null}
             <ModeButton active={mode === 'review'} onClick={() => setMode('review')}>
               Review
             </ModeButton>
@@ -582,15 +597,17 @@ export function JdPanel({
                 Sample
               </Button>
             ) : null}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-ink"
-              onClick={handleClear}
-              aria-label="Clear job description"
-            >
-              <X />
-            </Button>
+            {!locked ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-ink"
+                onClick={handleClear}
+                aria-label="Clear job description"
+              >
+                <X />
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -627,6 +644,8 @@ export function JdPanel({
               value={value}
               onChange={(event) => handleChange(event.target.value)}
               onPaste={handlePaste}
+              readOnly={locked}
+              aria-readonly={locked}
               aria-label="Job description"
               placeholder=""
               spellCheck={false}
@@ -716,7 +735,8 @@ export function JdPanel({
       ) : null}
 
       <CvAssistant
-        open={assistantOpen}
+        key={assistantOpen ? 'cv-assistant-open' : 'cv-assistant-closed'}
+        open={assistantOpen && !locked}
         onClose={closeAssistant}
         docx={docx}
         cv={cvClassification}
@@ -725,7 +745,7 @@ export function JdPanel({
         needsDeepRead={cvNeedsDeepRead}
         onClassifyCv={onClassifyCv}
         onDeepReadCv={onDeepReadCv}
-        onApplyEdit={onApplyCvEdit}
+        onApplyEdits={onApplyCvEdits}
         onSaveStory={onSaveStory}
         jd={result?.data ?? null}
         profile={profile?.profile ?? null}

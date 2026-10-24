@@ -2,12 +2,15 @@ import type { ChatMessage } from '../cloudflare'
 import type { CvRole } from '../../shared/cv-classification'
 import type { CvStory, FitGap, FitMessage } from '../../shared/cv-fit'
 import type { CompanyProfile } from '../../shared/jd-classification'
+import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
 
 /**
  * The assistant writes one bullet from the candidate's own facts. It is allowed
  * to condense and rephrase, never to add a tool, metric, employer or outcome.
  */
 export const FIT_SYSTEM_PROMPT = `You write one CV bullet from the candidate's own facts. Return one JSON object and nothing else.
+
+${PROMPT_SAFETY}
 
 Rules
 - Use ONLY facts the candidate stated in this conversation or in their stored stories. Never invent metrics, tools, employers, dates or outcomes.
@@ -42,15 +45,16 @@ export type FitPromptInput = {
 
 export function fitMessages(input: FitPromptInput): ChatMessage[] {
   const bullets = input.role.bullets
-    .map((bullet) => `- ${bullet.text}`)
+    .slice(0, 20)
+    .map((bullet) => `- ${bullet.text.slice(0, 300)}`)
     .join('\n')
 
   const stories = input.stories
     .slice(0, 8)
     .map(
       (story) =>
-        `- [${story.company ?? 'unknown role'} / ${story.title ?? 'unknown title'}] ${story.userText}${
-          story.bullet ? ` (approved as: ${story.bullet})` : ''
+        `- [${story.company ?? 'unknown role'} / ${story.title ?? 'unknown title'}] ${story.userText.slice(0, 500)}${
+          story.bullet ? ` (approved as: ${story.bullet.slice(0, 300)})` : ''
         }`,
     )
     .join('\n')
@@ -64,23 +68,18 @@ export function fitMessages(input: FitPromptInput): ChatMessage[] {
     { role: 'system', content: FIT_SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Gap to close: ${input.gap.label}${input.gap.kind === 'must' ? ' (must have)' : ' (worth showing)'}
+      content: `${untrusted('job', `Gap to close: ${input.gap.label}${input.gap.kind === 'must' ? ' (must have)' : ' (worth showing)'}
 Gap terms: ${input.gap.terms.join(', ')}
 
-Target role: ${input.role.title ?? 'unknown title'} at ${input.role.company ?? 'unknown company'} (${input.role.dates ?? 'dates unknown'})
-Existing bullets:
-${bullets || '(none)'}
+Target role: ${input.role.title ?? 'unknown title'} at ${input.role.company ?? 'unknown company'} (${input.role.dates ?? 'dates unknown'})`, 2_000)}
 
-Stored confirmed facts:
-${stories || '(none)'}
+${untrusted('existing_bullets', bullets || '(none)', 5_000)}
 
-Conversation:
-${history || '(none)'}
+${untrusted('stored_facts', stories || '(none)', 4_000)}
 
-Candidate's latest message:
-"""
-${input.message}
-"""
+${untrusted('conversation', history || '(none)', 3_000)}
+
+${untrusted('candidate_message', input.message, 3_000)}
 
 Max characters for the first bullet: ${input.maxChars}
 Respond with the JSON object only.`,

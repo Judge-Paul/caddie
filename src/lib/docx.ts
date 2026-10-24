@@ -20,6 +20,11 @@ export type DocxBlock = {
   style: string | null
   list: boolean
   inTable: boolean
+  outlineLevel?: number | null
+  numberingLevel?: number | null
+  indentLeft?: number | null
+  bold?: boolean
+  tableRow?: number | null
 }
 
 export type DocxEdit = {

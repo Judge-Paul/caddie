@@ -17,6 +17,11 @@ export type CvBlock = {
   style: string | null
   list: boolean
   inTable: boolean
+  outlineLevel?: number | null
+  numberingLevel?: number | null
+  indentLeft?: number | null
+  bold?: boolean
+  tableRow?: number | null
 }
 
 export type CvBullet = {
@@ -53,14 +58,32 @@ export type CvEducation = {
   }
 }
 
+export type CvProjectKind =
+  | 'work'
+  | 'client'
+  | 'side'
+  | 'open-source'
+  | 'personal'
+  | 'unknown'
+
 export type CvProject = {
   id: string
   name: string | null
   description: string | null
+  product: string | null
   url: string | null
+  dates: string | null
+  kind: CvProjectKind
+  roleId: string | null
+  company: string | null
+  tech: string[]
+  bullets: CvBullet[]
   anchors: {
     name: CvAnchor | null
     description: CvAnchor | null
+    url: CvAnchor | null
+    dates: CvAnchor | null
+    tech: CvAnchor | null
   }
 }
 
@@ -285,6 +308,15 @@ function normaliseEducation(
   }
 }
 
+const PROJECT_KINDS: CvProjectKind[] = [
+  'work',
+  'client',
+  'side',
+  'open-source',
+  'personal',
+  'unknown',
+]
+
 function normaliseProject(
   value: unknown,
   index: number,
@@ -294,19 +326,42 @@ function normaliseProject(
 
   const name = nullableText(value.name, 120)
   const description = nullableText(value.description, 400)
-  const url = nullableText(value.url, 200)
+  const product = nullableText(value.product, 300)
+  const url = nullableText(value.url, 240)
+  const dates = nullableText(value.dates, 80)
+  const roleId = nullableText(value.roleId, 60)
+  const company = nullableText(value.company, 120)
+  const kindValue = text(value.kind, 30) as CvProjectKind
+  const kind = PROJECT_KINDS.includes(kindValue) ? kindValue : 'unknown'
+  const tech = stringList(value.tech, 12, 60)
   const anchors = isRecord(value.anchors) ? value.anchors : {}
+  const bullets = Array.isArray(value.bullets)
+    ? value.bullets
+        .map((entry) => normaliseBullet(entry, blocks))
+        .filter((entry): entry is CvBullet => Boolean(entry))
+        .slice(0, 10)
+    : []
 
-  if (!name && !description && !url) return null
+  if (!name && !description && !url && bullets.length === 0) return null
 
   return {
     id: text(value.id, 60) || `project-${index + 1}`,
     name,
     description,
+    product,
     url,
+    dates,
+    kind,
+    roleId,
+    company,
+    tech,
+    bullets,
     anchors: {
       name: normaliseAnchor(anchors.name, blocks, name),
       description: normaliseAnchor(anchors.description, blocks, description),
+      url: normaliseAnchor(anchors.url, blocks, url),
+      dates: normaliseAnchor(anchors.dates, blocks, dates),
+      tech: normaliseAnchor(anchors.tech, blocks, tech.length ? tech.join(', ') : null),
     },
   }
 }
