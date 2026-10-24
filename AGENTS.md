@@ -19,6 +19,8 @@ behave, so the product stays coherent no matter which agent works on it next.
 - Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
   (Gemma for extraction, Clef-flash as the paste guard)
 - Browserbase Search + Fetch for company research, extracted against a JSON schema
+- Better Auth (Google-only) with MongoDB + GridFS for accounts, base CVs,
+  per-application CV snapshots and the managed story profile
 - `shared/jd-classification.ts` is the classification contract shared by the
   server, the client and the eval. Do not fork the shape in a component.
 - Path aliases `@/*` → `src/*` and `@shared/*` → `shared/*`. Note the shadcn
@@ -35,8 +37,12 @@ npm run eval     # classifier scoreboard against eval/corpus.ts
 
 The classifier needs Cloudflare credentials. Copy `.env.example` to `.env.local`
 and fill in `CF_ACCOUNT_ID` and `CF_API_KEY`; never prefix them with `VITE_`.
-Company research additionally needs `BROWSERBASE_API_KEY`. Matching works
-without either key; classification does not, and research is skipped without it.
+Company research additionally needs `BROWSERBASE_API_KEY`. Accounts need
+`MONGODB_URI`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and the Google client
+keys. The Google Authorized redirect URI is
+`${BETTER_AUTH_URL}/api/auth/callback/google`; for local dev that is
+`http://localhost:5173/api/auth/callback/google`. `BETTER_AUTH_API_KEY` belongs
+to `@better-auth/infra` and is not required for auth.
 
 DOCX uploads need LibreOffice (`soffice`) on the server path. Override it with
 `SOFFICE_BIN` if it lives elsewhere. The fit assistant also needs poppler
@@ -106,26 +112,50 @@ entrance animations on load, no bouncing.
   scroll independently. Left = the CV, right = the job description. The right
   rail is 404–460px; the CV pane keeps the paper centred in the remaining space.
 - Below `lg` the panes stack and the page scrolls normally.
-- **The CV document is authored at exactly 794×1123px** (`src/lib/page.ts`, A4
-  at 96dpi) and scaled with a CSS transform by `src/components/cv/cv-preview.tsx`.
-  Never convert it to fluid units or responsive font sizes — line breaks and the
-  one-page guarantee depend on the fixed canvas. After changing CV content,
-  re-measure: the last element must finish inside 1123px, ideally with 40–60px
-  of bottom margin.
-- **An uploaded PDF replaces that paper.** Pages are rendered at the measured
-  pane width, stacked with `paper-shadow`, and scaled by width only — never
-  crop or letterbox a page. pdf.js's text layer sits over each canvas so text
-  can be selected and copied; keep it, and keep the toolbar arrows working at
-  every width (sticky at the bottom of the pane, hidden for a single page).
-- **An uploaded DOCX is rendered to PDF server-side** by LibreOffice, then shown
-  through the same viewer. Margins, styles, tables and installed fonts come from
-  the renderer; a font missing on the server is substituted. The source DOCX is
-  kept in IndexedDB so it can be edited and re-rendered.
-- The last upload is restored from IndexedDB on load (`src/lib/cv-store.ts`).
-  PDF sources stay in the browser. DOCX sources are sent to the local server for
-  rendering, editing and classification, never stored there. There is no account.
+- **The sample CV component is authored at exactly 794×1123px** (`src/lib/page.ts`,
+  A4 at 96dpi) and scaled with a CSS transform by
+  `src/components/cv/cv-preview.tsx`. Never convert it to fluid units or
+  responsive font sizes — line breaks and the one-page guarantee depend on the
+  fixed canvas. After changing CV content, re-measure: the last element must
+  finish inside 1123px, ideally with 40–60px of bottom margin.
+- **An application's PDF replaces that paper.** Pages are rendered at the
+  measured pane width, stacked with `paper-shadow`, and scaled by width only —
+  never crop or letterbox a page. pdf.js's text layer sits over each canvas so
+  text can be selected and copied; keep it, and keep the toolbar arrows working
+  at every width (sticky at the bottom of the pane, hidden for a single page).
+- **A DOCX is rendered to PDF server-side** by LibreOffice, then shown through
+  the same viewer. Margins, styles, tables and installed fonts come from the
+  renderer; a font missing on the server is substituted. The source DOCX and the
+  rendered PDF are stored in the user's account (GridFS), not IndexedDB.
 - The paper is read-only in the UI. Text changes happen only through the DOCX
   edit API; do not add editable affordances to the rendered paper.
+
+## Accounts, dashboard and applications
+
+- **Google-only.** Better Auth is mounted at `/api/auth/*`; there is no email or
+  password path. `/api/health` and `/api/auth/*` are public; every data route
+  (`/api/me`, `/api/applications`, `/api/cv/*`, `/api/classify`,
+  `/api/research`) requires a session.
+- The dashboard lists the user's applications, accepts a base CV, and creates an
+  application from a pasted posting. The workspace is the existing CV + JD view,
+  scoped to that application.
+- **Base CV files live in GridFS** (`cvFiles`, one copy per user). Creating an
+  application copies the base CV so later replacing the profile CV does not
+  rewrite old applications. Each application stores its own DOCX/PDF snapshot
+  and a `draft | classified | customized` status.
+- An application stores the JD text, the normalised JD classification, title,
+  company, dates and its CV snapshot. That classification is reused when the app
+  is opened, so the workspace does not re-read an unchanged posting. Company
+  research remains a public cache and is re-run when needed.
+- **Stories live in MongoDB per user** (`stories`), not IndexedDB. They are the
+  managed profile: the candidate's wording, the approved bullet, role, gap and
+  confirmed skills. They are reused by later fits.
+- Accounts need MongoDB (Atlas or local), `BETTER_AUTH_SECRET`,
+  `BETTER_AUTH_URL` (public app origin) and the Google OAuth keys. The Google
+  Authorized redirect URI is `${BETTER_AUTH_URL}/api/auth/callback/google`.
+  `BETTER_AUTH_API_KEY` is for Infrastructure only and is unused here.
+- No anonymous data path: the sample CV and sample JD are not part of the
+  account workflow.
 
 ## How matching works
 
@@ -164,8 +194,9 @@ groups, years, `match` terms), `signals`, responsibilities, benefits, keywords
 and a one-sentence summary. The same classification supplies the must-have set
 that `src/lib/match.ts` scores against the CV.
 
-- The browser posts the JD to `/api/classify` (`src/lib/classify.ts`). The Bun
-  server (`server/classify/`) builds the prompt and calls Cloudflare Workers AI.
+- The browser posts the JD to `/api/classify` (`src/lib/classify.ts`, session
+  required). The Bun server (`server/classify/`) builds the prompt and calls
+  Cloudflare Workers AI. The result is stored on the application.
 - **Non-JD pastes are blocked first.** A local rules check
   (`shared/jd-guard.ts`) rejects links, CVs, cover letters and chats in the
   browser. The server repeats it and sends only the uncertain middle to
@@ -217,11 +248,14 @@ DOCX is the editable source; the PDF is a rendering of it.
 - Edits are `{ blockId, find?, text }`. `find` replaces a substring (a role
   title inside a line that also holds dates); omitting it replaces the whole
   block. The first affected run keeps its `w:rPr`, so the same font, size and
-  weight survive; the rest of the paragraph is left intact.
+  weight survive; the rest of the paragraph is left intact. Application edits
+  are saved back to GridFS through `PUT /api/applications/:id/cv`.
 - `POST /api/cv/convert` returns a PDF, `POST /api/cv/parse` returns blocks,
   `POST /api/cv/edit` returns edited DOCX + PDF + blocks as base64, and
-  `POST /api/cv/classify` returns the structured CV. Keep user-facing editing
-  out of the paper until the UI is designed; the API exists for agents.
+  `POST /api/cv/classify` returns the structured CV. All are authenticated.
+  `POST /api/me/cv` uploads the base CV; `/api/applications/:id/cv` stores an
+  application snapshot. Keep user-facing direct editing out of the paper; the
+  API exists for the assistant and agents.
 - `shared/cv-classification.ts` is the CV contract. Every field carries an
   anchor (`{ blockId, find }`) back to the DOCX, so a future JD-fit pass can say
   "change role 2's title" and apply it without guessing. The normaliser rejects
@@ -235,10 +269,11 @@ DOCX is the editable source; the PDF is a rendering of it.
 - **`?mode=deep` is the manual fallback.** It runs the whole-CV Gemma extraction
   with a 120s timeout for unusual layouts. The assistant exposes it as a
   **Deep read** action; never run it automatically.
-- CV classification is not cached. The extracted CV is personal data, so the
-  server keeps it only in memory for the request; the caller receives it and the
-  DOCX remains in IndexedDB. The block text is sent to Cloudflare (Clef, or
-  Gemma for a deep read), like the posting; the CV is never sent to Browserbase.
+- CV classification is not cached. The extracted CV is personal data: the
+  DOCX/PDF lives in the user's account (GridFS), while the classification is
+  computed per request and returned. The block text is sent to Cloudflare (Clef,
+  or Gemma for a deep read), like the posting; the CV is never sent to
+  Browserbase.
 - Cloudflare transport failures are retried once (as are 429/5xx responses) and
   logged server-side. CVs over 80k characters get a clear "too much text" error
   instead of an opaque model failure.
@@ -264,15 +299,15 @@ until the user approves a diff.
 - `POST /api/cv/fit` returns a proposal (bullet, target block, rationale,
   facts used, line/page counts) or a question. Applying is a normal
   `/api/cv/edit` call after the user approves. There is no auto-apply.
-- Stories are stored locally in IndexedDB (`caddie-profile`): the candidate's
-  own wording, the approved bullet, role, gap and confirmed skills. They are
-  reused for later JDs. This is the local managed profile; there is no server
-  database yet. Do not treat an unapproved draft as a fact.
+- Stories are stored in MongoDB (`stories`) under the signed-in user: the
+  candidate's own wording, the approved bullet, role, gap and confirmed skills.
+  They are reused for later JDs. Do not treat an unapproved draft as a fact.
 - The assistant request carries the CV, JD, gap, role, conversation and relevant
-  stories to the local server and Gemma. Nothing is cached; no CV or story is
-  written to the server's disk.
+  stories to the local server and Gemma. The CV and story are already in the
+  account; the model call itself is not cached. The CV is never sent to
+  Browserbase.
 - Current scope: one bullet replacement, one fact at a time. Multi-bullet
-  rewrites, role-title changes and applying a whole fit plan are next.
+  rewrites, role-title changes, cover letters and email drafts are not built.
 
 ## UI quality bar
 
@@ -302,19 +337,16 @@ CV measurement, and look at 1440px and 390px widths.
 
 ## Status
 
-Built: brand + tokens, one-page CV preview, PDF and DOCX CV upload with
-page-by-page viewing and selectable text, DOCX-to-PDF rendering through
-LibreOffice, JD paste/review with classification-backed coverage (red missing
-must-haves, amber "worth showing" signals), coverage ring/bar, gap chips, a
-Clef-flash non-JD guard, JD classification into structured data (Data tab,
-Gemma via the Bun server), company research through Browserbase, an anchored
-DOCX edit API, a fast structural CV read with a manual Gemma deep read, a CV
-fit assistant with a local story profile, and an eval harness.
+Built: Google-only accounts through Better Auth, a MongoDB/GridFS account store,
+a dashboard and per-application workspace, base CV upload, per-application CV
+snapshots, stored JD classifications, a managed story profile, PDF/DOCX viewing
+with selectable text, DOCX-to-PDF rendering through LibreOffice, a fast
+structural CV read with a manual Gemma deep read, a CV fit assistant, an anchored
+DOCX edit API, company research through Browserbase, and an eval harness.
 
-Not built yet: a server-backed managed profile/accounts, direct text editing on
-the paper, multi-bullet or role-title rewrites, applying a whole fit plan,
-saving classifications, a job library, PDF export, per-line/section analysis,
-or a database. The uploaded CV and the local story profile are restored from
-IndexedDB on reload. A DOCX is sent to the local server for rendering, editing,
-classification and fitting and is never stored there. Don't imply anything else
-persists. Don't imply these exist in copy until they do.
+Not built yet: cover letters or email drafts, a dedicated profile page, direct
+text editing on the paper, multi-bullet or role-title rewrites, applying a whole
+fit plan, a job library, PDF export, or per-line/section analysis. Matching is
+client-side; accounts, CV files, applications and stories persist in MongoDB.
+The CV is sent to Cloudflare only for the features the user invokes. Don't imply
+anything else persists.
