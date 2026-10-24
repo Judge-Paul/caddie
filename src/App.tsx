@@ -1,319 +1,209 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { AuthScreen } from '@/components/auth/auth-screen'
 import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
-import { CvPreview } from '@/components/cv/cv-preview'
-import { JdPanel } from '@/components/jd/jd-panel'
-import type { CvReadStatus } from '@/components/jd/cv-assistant'
+import { Dashboard } from '@/components/dashboard/dashboard'
+import { Workspace } from '@/components/workspace/workspace'
 import { Button } from '@/components/ui/button'
-import { cv } from '@/data/cv'
-import { sampleJd } from '@/data/sample-jd'
-import { flattenCv } from '@/lib/analyze'
-import { clearCv, readCv, saveCv } from '@/lib/cv-store'
 import {
-  DOCX_MIME,
-  classifyCvDocx,
-  convertCvDocx,
-  editCvDocx,
-} from '@/lib/docx'
-import type { CvPdf } from '@/lib/pdf'
-import { listStories, saveStory as persistStory } from '@/lib/profile-store'
-import type { CvClassification } from '@shared/cv-classification'
+  createApplication,
+  deleteApplication,
+  getApplication,
+  getMe,
+  saveApplicationCv,
+  saveStory,
+  updateApplication,
+  uploadBaseCv,
+} from '@/lib/account'
+import { signOut, useSession } from '@/lib/auth-client'
+import type {
+  AccountMe,
+  AccountUser,
+  ApplicationDetail,
+  UpdateApplicationPatch,
+} from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
-import { AlertCircle, LoaderCircle, Lock, Upload, X } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LogOut } from 'lucide-react'
 
-const sampleCvText = flattenCv(cv)
-
-// pdf.js is only worth its weight once there is a PDF to draw.
-const PdfPreview = lazy(() =>
-  import('@/components/cv/pdf-preview').then((module) => ({ default: module.PdfPreview })),
-)
-
-function PaperPlaceholder({ label }: { label?: string }) {
+function Splash({ label = 'Opening Caddie' }: { label?: string }) {
   return (
-    <div className="paper-shadow flex aspect-[794/1123] w-full items-center justify-center bg-white ring-1 ring-black/[0.04]">
-      {label ? (
-        <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
-          {label}
-        </span>
-      ) : null}
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)]">
+      <CaddieMark className="size-10" />
+      <span className="mt-4 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+        {label}
+      </span>
     </div>
   )
 }
 
-export default function App() {
-  const [jd, setJd] = useState('')
-  const [pdf, setPdf] = useState<CvPdf | null>(null)
-  const [docx, setDocx] = useState<File | null>(null)
-  const [uploadId, setUploadId] = useState(0)
-  const [uploadError, setUploadError] = useState('')
-  const [reading, setReading] = useState(false)
-  const [readingLabel, setReadingLabel] = useState('Reading your CV')
-  const [restoring, setRestoring] = useState(true)
-  const [cvClassification, setCvClassification] = useState<CvClassification | null>(null)
-  const [cvStatus, setCvStatus] = useState<CvReadStatus>('idle')
-  const [cvError, setCvError] = useState('')
-  const [cvNeedsDeepRead, setCvNeedsDeepRead] = useState(false)
-  const [stories, setStories] = useState<CvStory[]>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const paneRef = useRef<HTMLElement>(null)
-  const restoreCancelledRef = useRef(false)
-  const cvRequestRef = useRef<AbortController | null>(null)
-
-  // An uploaded CV replaces the sample as the side the matcher reads.
-  const cvText = pdf ? pdf.text : sampleCvText
-
-  useEffect(
-    () => () => {
-      void pdf?.doc.loadingTask.destroy().catch(() => {})
-    },
-    [pdf],
+function AccountError({
+  message,
+  onRetry,
+  onSignOut,
+}: {
+  message: string
+  onRetry: () => void
+  onSignOut: () => void
+}) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-[430px] rounded-xl border border-border bg-card p-6">
+        <div className="flex size-10 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
+          <AlertCircle className="size-5" strokeWidth={1.75} />
+        </div>
+        <h1 className="mt-4 text-[16px] font-semibold tracking-[-0.02em] text-ink">
+          Could not open your account
+        </h1>
+        <p className="mt-1.5 text-[12px] leading-[1.5] text-muted-foreground">
+          {message}
+        </p>
+        <div className="mt-4 flex gap-2">
+          <Button size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onSignOut}>
+            Sign out
+          </Button>
+        </div>
+      </div>
+    </div>
   )
+}
 
-  // Bring back the last uploaded CV on load. Best effort: storage may be
-  // unavailable (private mode), in which case the sample stays.
-  useEffect(() => {
-    let cancelled = false
+function AccountApp({ user }: { user: AccountUser }) {
+  const [me, setMe] = useState<AccountMe | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [openingId, setOpeningId] = useState<string | null>(null)
+  const [active, setActive] = useState<ApplicationDetail | null>(null)
+  const mountedRef = useRef(true)
 
-    void (async () => {
-      try {
-        const stored = await readCv()
-        if (!stored || cancelled || restoreCancelledRef.current) return
-
-        const { loadCvPdf } = await import('@/lib/pdf')
-        let renderedFile: File
-
-        if (stored.kind === 'pdf') {
-          renderedFile = stored.source
-        } else if (stored.rendered) {
-          renderedFile = stored.rendered
-        } else {
-          const blob = await convertCvDocx(stored.source)
-          renderedFile = new File(
-            [blob],
-            stored.source.name.replace(/\.docx$/i, '.pdf'),
-            { type: 'application/pdf' },
-          )
-          void saveCv({ kind: 'docx', source: stored.source, rendered: renderedFile }).catch(
-            () => {},
-          )
-        }
-
-        const next = await loadCvPdf(renderedFile)
-
-        if (cancelled || restoreCancelledRef.current) {
-          void next.doc.loadingTask.destroy().catch(() => {})
-          return
-        }
-
-        setPdf(next)
-        setDocx(stored.kind === 'docx' ? stored.source : null)
-        setUploadId((id) => id + 1)
-      } catch {
-        void clearCv().catch(() => {})
-        if (!cancelled) {
-          setUploadError('The saved CV could not be restored. Upload it again.')
-        }
-      } finally {
-        if (!cancelled) setRestoring(false)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    void listStories()
-      .then((loaded) => {
-        if (!cancelled) setStories(loaded)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(
-    () => () => {
-      cvRequestRef.current?.abort()
-    },
-    [],
-  )
-
-  function resetCvClassification() {
-    cvRequestRef.current?.abort()
-    cvRequestRef.current = null
-    setCvClassification(null)
-    setCvStatus('idle')
-    setCvError('')
-    setCvNeedsDeepRead(false)
-  }
-
-  async function runCvClassify(mode: 'fast' | 'deep') {
-    if (!docx || cvStatus === 'loading') return
-    if (mode === 'fast' && cvClassification) return
-
-    cvRequestRef.current?.abort()
-    const controller = new AbortController()
-    cvRequestRef.current = controller
-    setCvStatus('loading')
-    setCvError('')
-
+  const loadMe = useCallback(async (initial = false) => {
+    if (initial) setLoading(true)
+    setError('')
     try {
-      const result = await classifyCvDocx(docx, controller.signal, mode)
-      if (controller.signal.aborted) return
-      setCvClassification(result.data)
-      setCvNeedsDeepRead(
-        mode === 'deep' ? false : Boolean(result.meta.needsDeepRead),
-      )
-      setCvStatus('ready')
-    } catch (error) {
-      if (controller.signal.aborted) return
-      setCvError(
-        error instanceof Error ? error.message : 'That CV could not be read.',
-      )
-      // A failed deep read should not throw away a usable fast read.
-      setCvStatus(mode === 'deep' && cvClassification ? 'ready' : 'error')
+      const next = await getMe()
+      if (mountedRef.current) setMe(next)
+    } catch (caught) {
+      if (mountedRef.current) {
+        setError(
+          caught instanceof Error ? caught.message : 'Could not open your account.',
+        )
+      }
     } finally {
-      if (cvRequestRef.current === controller) cvRequestRef.current = null
+      if (initial && mountedRef.current) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    void loadMe(true)
+    return () => {
+      mountedRef.current = false
+    }
+  }, [loadMe])
+
+  function patchMeApplication(updated: ApplicationDetail) {
+    setMe((current) =>
+      current
+        ? {
+            ...current,
+            applications: current.applications.map((application) =>
+              application.id === updated.id ? updated : application,
+            ),
+          }
+        : current,
+    )
+  }
+
+  async function handleOpenApplication(id: string) {
+    setOpeningId(id)
+    setActionError('')
+    try {
+      const detail = await getApplication(id)
+      setActive(detail)
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : 'That application could not be opened.',
+      )
+    } finally {
+      setOpeningId(null)
     }
   }
 
-  function classifyCv() {
-    return runCvClassify('fast')
+  async function handleCreateApplication(jdText: string) {
+    const detail = await createApplication(jdText)
+    await loadMe().catch(() => {})
+    setActive(detail)
   }
 
-  function deepReadCv() {
-    return runCvClassify('deep')
+  function handleBack() {
+    setActive(null)
+    setActionError('')
+    void loadMe()
   }
 
-  async function applyCvEdit(blockId: string, text: string) {
-    if (!docx) throw new Error('Upload a DOCX to edit your CV.')
+  async function handleUpdateApplication(patch: UpdateApplicationPatch) {
+    if (!active) return
+    const updated = await updateApplication(active.id, patch)
+    setActive(updated)
+    patchMeApplication(updated)
+  }
 
-    const result = await editCvDocx(docx, [{ blockId, text }])
-    const source = new File([result.docx], docx.name, { type: DOCX_MIME })
-    const rendered = new File(
-      [result.pdf],
-      docx.name.replace(/\.docx$/i, '.pdf'),
-      { type: 'application/pdf' },
-    )
-    const { loadCvPdf } = await import('@/lib/pdf')
-    const next = await loadCvPdf(rendered)
-
-    setPdf(next)
-    setDocx(source)
-    setUploadId((id) => id + 1)
-    await saveCv({ kind: 'docx', source, rendered }).catch(() => {})
-
-    setCvClassification((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        roles: current.roles.map((role) => ({
-          ...role,
-          bullets: role.bullets.map((bullet) =>
-            bullet.anchor?.blockId === blockId
-              ? { ...bullet, text }
-              : bullet,
-          ),
-        })),
-      }
-    })
+  async function handleSaveCv(docx: Blob, pdf: Blob) {
+    if (!active) throw new Error('No application is open.')
+    const updated = await saveApplicationCv(active.id, docx, pdf)
+    setActive(updated)
+    patchMeApplication(updated)
   }
 
   function handleSaveStory(story: CvStory) {
-    setStories((current) => [
-      story,
-      ...current.filter((entry) => entry.id !== story.id),
-    ])
-    void persistStory(story).catch(() => {})
-  }
-
-  function openPicker() {
-    fileInputRef.current?.click()
-  }
-
-  async function handleFile(file: File | undefined) {
-    if (!file) return
-
-    const isDocx =
-      /\.docx$/i.test(file.name) || file.type.includes('wordprocessingml')
-
-    resetCvClassification()
-    restoreCancelledRef.current = true
-    setUploadError('')
-    setReading(true)
-    setReadingLabel(isDocx ? 'Rendering your CV' : 'Reading your CV')
-    const previous = pdf
-
-    try {
-      const { loadCvPdf } = await import('@/lib/pdf')
-
-      if (isDocx) {
-        const renderedBlob = await convertCvDocx(file)
-        const renderedFile = new File(
-          [renderedBlob],
-          file.name.replace(/\.docx$/i, '.pdf'),
-          { type: 'application/pdf' },
+    void saveStory(story)
+      .then(({ story: saved }) => {
+        setMe((current) =>
+          current
+            ? {
+                ...current,
+                stories: [
+                  saved,
+                  ...current.stories.filter((entry) => entry.id !== saved.id),
+                ],
+              }
+            : current,
         )
-        const next = await loadCvPdf(renderedFile)
-
-        setPdf(next)
-        setDocx(file)
-        setUploadId((id) => id + 1)
-        paneRef.current?.scrollTo({ top: 0 })
-        window.setTimeout(() => {
-          void previous?.doc.loadingTask.destroy().catch(() => {})
-        }, 0)
-        void saveCv({ kind: 'docx', source: file, rendered: renderedFile }).catch(
-          () => {},
-        )
-      } else {
-        const next = await loadCvPdf(file)
-
-        setPdf(next)
-        setDocx(null)
-        setUploadId((id) => id + 1)
-        paneRef.current?.scrollTo({ top: 0 })
-        window.setTimeout(() => {
-          void previous?.doc.loadingTask.destroy().catch(() => {})
-        }, 0)
-        void saveCv({ kind: 'pdf', source: file, rendered: null }).catch(() => {})
-      }
-    } catch (error) {
-      setUploadError(
-        error instanceof Error && error.name === 'CvPdfError'
-          ? error.message
-          : error instanceof Error && error.message
-            ? error.message
-            : 'That CV could not be read. Try another PDF or DOCX.',
-      )
-    } finally {
-      setReading(false)
-      // allow picking the same file again
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+      })
+      .catch(() => {})
   }
 
-  function removePdf() {
-    restoreCancelledRef.current = true
-    resetCvClassification()
-    setPdf(null)
-    setDocx(null)
-    setUploadError('')
-    void clearCv().catch(() => {})
+  async function handleUploadCv(file: File) {
+    await uploadBaseCv(file)
+    await loadMe()
   }
 
-  const pageLabel = pdf
-    ? `${docx ? 'DOCX' : 'PDF'} · ${pdf.pageCount} ${
-        pdf.pageCount === 1 ? 'page' : 'pages'
-      }`
-    : 'A4 · 1 page'
+  async function handleDeleteApplication(id: string) {
+    await deleteApplication(id)
+    await loadMe()
+  }
+
+  async function handleSignOut() {
+    await signOut()
+    setActive(null)
+    setMe(null)
+  }
+
+  if (loading) return <Splash />
+
+  if (!me) {
+    return (
+      <AccountError
+        message={error || 'The account database did not answer.'}
+        onRetry={() => void loadMe(true)}
+        onSignOut={() => void handleSignOut()}
+      />
+    )
+  }
 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
@@ -323,127 +213,82 @@ export default function App() {
           <CaddieWordmark />
           <span className="hidden h-4 w-px bg-border sm:block" />
           <span className="hidden text-[12px] text-muted-foreground sm:block">
-            JD → CV matcher
+            {active ? 'Application' : 'Applications'}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-[11.5px] whitespace-nowrap text-muted-foreground">
-          <Lock className="size-3.5" strokeWidth={1.75} />
-          <span className="hidden sm:inline">Matching runs in your browser</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="hidden min-w-0 text-right sm:block">
+            <p className="truncate text-[11.5px] font-medium text-ink">
+              {user.name || user.email}
+            </p>
+            <p className="truncate text-[10px] text-muted-foreground">
+              {user.email}
+            </p>
+          </div>
+          {user.image ? (
+            <img
+              src={user.image}
+              alt=""
+              className="size-7 rounded-full object-cover ring-1 ring-border"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <span className="flex size-7 items-center justify-center rounded-full bg-brand-50 text-[11px] font-semibold text-brand-700 ring-1 ring-border">
+              {(user.name || user.email).slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-ink"
+            onClick={() => void handleSignOut()}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut />
+          </Button>
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(404px,460px)]">
-        <section
-          ref={paneRef}
-          className="min-h-0 lg:overflow-y-auto bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)] px-4 pt-5 pb-10 sm:px-8"
-        >
-          <div className="mx-auto w-full max-w-[652px]">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="text-[10.5px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                  CV preview
-                </span>
-                <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10.5px] whitespace-nowrap tabular-nums text-muted-foreground">
-                  {pageLabel}
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {pdf ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-muted-foreground hover:text-ink max-sm:size-11"
-                    onClick={removePdf}
-                    aria-label="Remove uploaded CV"
-                  >
-                    <X />
-                  </Button>
-                ) : null}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 bg-card max-sm:h-11"
-                  onClick={openPicker}
-                  disabled={reading}
-                  aria-busy={reading}
-                >
-                  {reading ? <LoaderCircle className="animate-spin" /> : <Upload />}
-                  {reading ? 'Reading…' : pdf ? 'Replace' : 'Upload CV'}
-                </Button>
-              </div>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
-              hidden
-              onChange={(event) => {
-                void handleFile(event.target.files?.[0])
-              }}
-            />
-
-            {uploadError ? (
-              <p
-                role="alert"
-                className="mb-3 flex items-start gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-[11.5px] text-destructive"
-              >
-                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                {uploadError}
-              </p>
-            ) : null}
-
-            {pdf && pdf.text.length === 0 ? (
-              <p className="mb-3 flex items-start gap-1.5 text-[11.5px] text-muted-foreground">
-                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                No selectable text in this CV, so coverage cannot read it.
-              </p>
-            ) : null}
-
-            {reading && !pdf ? (
-              <PaperPlaceholder label={readingLabel} />
-            ) : restoring && !pdf ? (
-              <PaperPlaceholder label="Restoring your CV" />
-            ) : pdf ? (
-              <Suspense fallback={<PaperPlaceholder />}>
-                <PdfPreview key={uploadId} pdf={pdf} scrollRef={paneRef} />
-              </Suspense>
-            ) : (
-              <CvPreview profile={cv} />
-            )}
-
-            <p className="mt-4 truncate text-center text-[11px] text-muted-foreground">
-              {pdf
-                ? docx
-                  ? `${docx.name} · DOCX converted on the server`
-                  : `${pdf.fileName} · Stays in your browser`
-                : 'Sample profile · Upload your own CV to match against it.'}
-            </p>
-          </div>
-        </section>
-
-        <section className="min-h-0 border-t border-border/70 bg-[#f8fafd] p-3.5 sm:p-4 lg:border-t-0 lg:border-l">
-          <JdPanel
-            value={jd}
-            cvText={cvText}
-            cvClassification={cvClassification}
-            cvStatus={cvStatus}
-            cvError={cvError}
-            cvNeedsDeepRead={cvNeedsDeepRead}
-            docx={docx}
-            onClassifyCv={() => void classifyCv()}
-            onDeepReadCv={() => void deepReadCv()}
-            onApplyCvEdit={applyCvEdit}
-            stories={stories}
-            onSaveStory={handleSaveStory}
-            onChange={setJd}
-            onLoadSample={() => {
-              setJd(sampleJd)
-              return sampleJd
-            }}
-          />
-        </section>
-      </main>
+      {active ? (
+        <Workspace
+          key={active.id}
+          application={active}
+          stories={me.stories}
+          onBack={handleBack}
+          onUpdateApplication={handleUpdateApplication}
+          onSaveCv={handleSaveCv}
+          onSaveStory={handleSaveStory}
+        />
+      ) : (
+        <Dashboard
+          me={me}
+          openingId={openingId}
+          actionError={actionError || error}
+          onOpenApplication={(id) => void handleOpenApplication(id)}
+          onCreateApplication={handleCreateApplication}
+          onDeleteApplication={handleDeleteApplication}
+          onUploadCv={handleUploadCv}
+        />
+      )}
     </div>
+  )
+}
+
+export default function App() {
+  const { data: session, isPending } = useSession()
+
+  if (isPending) return <Splash label="Checking your session" />
+  if (!session) return <AuthScreen />
+
+  return (
+    <AccountApp
+      user={{
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image ?? null,
+      }}
+    />
   )
 }

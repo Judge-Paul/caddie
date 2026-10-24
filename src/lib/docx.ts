@@ -56,6 +56,10 @@ export async function fileToBase64(file: File) {
   return toBase64(await file.arrayBuffer())
 }
 
+export async function blobToBase64(blob: Blob) {
+  return toBase64(await blob.arrayBuffer())
+}
+
 function fromBase64(value: string, type: string) {
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)

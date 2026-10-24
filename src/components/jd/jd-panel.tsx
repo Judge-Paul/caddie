@@ -46,6 +46,10 @@ type JdPanelProps = {
   onSaveStory: (story: CvStory) => void
   onChange: (value: string) => void
   onLoadSample: () => string
+  initialClassification?: ClassificationResult | null
+  autoClassify?: boolean
+  showSample?: boolean
+  onClassified?: (result: ClassificationResult) => void
 }
 
 const MAX_GAP_CHIPS = 4
@@ -92,15 +96,25 @@ export function JdPanel({
   onSaveStory,
   onChange,
   onLoadSample,
+  initialClassification = null,
+  autoClassify = false,
+  showSample = true,
+  onClassified,
 }: JdPanelProps) {
-  const [mode, setMode] = useState<'edit' | 'review' | 'data'>('edit')
+  const [mode, setMode] = useState<'edit' | 'review' | 'data'>(
+    initialClassification || autoClassify ? 'review' : 'edit',
+  )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef<AbortController | null>(null)
   const researchRequestRef = useRef<AbortController | null>(null)
 
-  const [status, setStatus] = useState<ClassifyStatus>('idle')
-  const [result, setResult] = useState<ClassificationResult | null>(null)
+  const [status, setStatus] = useState<ClassifyStatus>(
+    initialClassification ? 'ready' : 'idle',
+  )
+  const [result, setResult] = useState<ClassificationResult | null>(
+    initialClassification,
+  )
   const [error, setError] = useState('')
   const [errorCode, setErrorCode] = useState<string | null>(null)
 
@@ -109,6 +123,27 @@ export function JdPanel({
   const [researchError, setResearchError] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [assistantGap, setAssistantGap] = useState<FitGap | null>(null)
+
+  useEffect(() => {
+    if (!autoClassify || initialClassification) return
+    if (value.trim().length >= 40) void runClassification(value)
+    // Runs once for a freshly opened application.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!initialClassification) return
+    const company = initialClassification.data.company.name
+    if (!company) return
+    void runResearch(
+      company,
+      initialClassification.data.role.title,
+      initialClassification.data.role.fields,
+      initialClassification.data.summary,
+    )
+    // Runs once for a stored classification.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const hasText = value.trim().length > 0
   const words = hasText ? value.trim().split(/\s+/).length : 0
@@ -246,6 +281,7 @@ export function JdPanel({
       if (controller.signal.aborted) return
       setResult(next)
       setStatus('ready')
+      onClassified?.(next)
 
       if (next.data.company.name) {
         void runResearch(
@@ -526,14 +562,16 @@ export function JdPanel({
             </ModeButton>
           </div>
           <div className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-ink"
-              onClick={handleLoadSample}
-            >
-              Sample
-            </Button>
+            {showSample ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-ink"
+                onClick={handleLoadSample}
+              >
+                Sample
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -597,14 +635,16 @@ export function JdPanel({
                   The posting, the requirements, all of it. Gemma reads it after
                   you paste, then marks what your CV is missing.
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="pointer-events-auto mt-4 bg-card"
-                  onClick={handleLoadSample}
-                >
-                  Try a sample role
-                </Button>
+                {showSample ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="pointer-events-auto mt-4 bg-card"
+                    onClick={handleLoadSample}
+                  >
+                    Try a sample role
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>

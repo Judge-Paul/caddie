@@ -1,14 +1,17 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 
-import type { FitRequest } from '../shared/cv-fit'
+import type { AccountCvKind, AccountUser, UpdateApplicationPatch } from '../shared/account'
+import type { CvStory, FitRequest } from '../shared/cv-fit'
 import type { ClassifyModel } from '../shared/jd-classification'
+import { guardJd, NOT_JD_MESSAGE } from '../shared/jd-guard'
 import { classifyJd } from './classify'
 import { CloudflareError } from './cloudflare'
 import {
   DocxError,
   MAX_DOCX_BYTES,
   editDocx,
+  openDocx,
   parseDocx,
 } from './cv/docx'
 import { classifyCvDocxDeep } from './cv/classify'
@@ -17,17 +20,67 @@ import { CvClassifyError } from './cv/errors'
 import { FitError, proposeCvFit } from './cv/fit'
 import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
+import {
+  AccountError,
+  createApplication,
+  deleteApplication,
+  deleteBaseCv,
+  deleteStory,
+  getApplication,
+  getApplicationFile,
+  getBaseFile,
+  getMe,
+  listApplications,
+  listStories,
+  saveApplicationCv,
+  saveBaseCv,
+  saveStory,
+  updateApplication,
+} from './account'
+import { authBaseUrl, authConfigured, getAuth } from './auth'
 import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
 import { researchCompany } from './research'
+import { sessionMiddleware, type AppEnv } from './session'
 import { validateJd } from './validate'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
+const MAX_PDF_BYTES = 20 * 1024 * 1024
 
-const app = new Hono()
+const app = new Hono<AppEnv>()
 
-app.get('/api/health', (c) => c.json({ ok: true, ...configSummary() }))
+app.get('/api/health', (c) =>
+  c.json({
+    ok: true,
+    ...configSummary(),
+    accounts: {
+      configured: authConfigured(),
+      database: Boolean(process.env.MONGODB_URI?.trim()),
+      baseURL: authBaseUrl(),
+    },
+  }),
+)
+
+app.all('/api/auth/*', (c) => {
+  const auth = getAuth()
+  if (!auth) {
+    return c.json(
+      {
+        error:
+          'Accounts are not configured yet. Add MONGODB_URI, BETTER_AUTH_SECRET and the Google keys to .env.local.',
+      },
+      503,
+    )
+  }
+  return auth.handler(c.req.raw)
+})
+
+app.use('/api/*', (c, next) => {
+  const path = c.req.path
+  if (path.startsWith('/api/auth/') || path === '/api/health') return next()
+  return sessionMiddleware(c, next)
+})
 
 app.post('/api/classify', async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
@@ -145,6 +198,12 @@ async function readDocxBytes(c: Context) {
 }
 
 function cvFailure(c: Context, error: unknown) {
+  if (error instanceof AccountError) {
+    return c.json(
+      { error: error.message },
+      error.status as 400 | 404 | 409 | 413 | 503,
+    )
+  }
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)
   }
@@ -290,6 +349,314 @@ app.post('/api/cv/fit', async (c) => {
 
   try {
     return c.json(await proposeCvFit(request, readConfig()))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+function accountUser(user: {
+  id: string
+  name?: string | null
+  email?: string | null
+  image?: string | null
+}): AccountUser {
+  return {
+    id: user.id,
+    name: user.name ?? '',
+    email: user.email ?? '',
+    image: user.image ?? null,
+  }
+}
+
+function safeFileName(name: string) {
+  return name.replace(/[^\w.-]+/g, '_') || 'cv'
+}
+
+async function readCvUpload(c: Context) {
+  const type = c.req.header('content-type') ?? ''
+  const length = Number(c.req.header('content-length') ?? 0)
+  if (Number.isFinite(length) && length > MAX_PDF_BYTES) {
+    throw new DocxError('That CV is larger than 20 MB.', 413)
+  }
+
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+  if (bytes.byteLength === 0) throw new DocxError('That CV is empty.', 400)
+  if (bytes.byteLength > MAX_PDF_BYTES) {
+    throw new DocxError('That CV is larger than 20 MB.', 413)
+  }
+
+  let fileName = ''
+  try {
+    const header = c.req.header('x-file-name')
+    if (header) fileName = decodeURIComponent(header)
+  } catch {
+    fileName = ''
+  }
+
+  const isPdf = /pdf/i.test(type) ||
+    (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)
+  const isDocx = /wordprocessingml/i.test(type) ||
+    (bytes[0] === 0x50 && bytes[1] === 0x4b)
+
+  if (isPdf) {
+    if (bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46) {
+      throw new DocxError('That file is not a valid PDF.', 415)
+    }
+    return { kind: 'pdf' as const, fileName: fileName || 'cv.pdf', pdf: bytes }
+  }
+
+  if (isDocx) {
+    if (bytes.byteLength > MAX_DOCX_BYTES) {
+      throw new DocxError('That DOCX is larger than 15 MB.', 413)
+    }
+    await openDocx(bytes)
+    const pdf = await renderDocxToPdf(bytes)
+    return {
+      kind: 'docx' as const,
+      fileName: fileName || 'cv.docx',
+      docx: bytes,
+      pdf,
+    }
+  }
+
+  throw new DocxError('Upload a DOCX or PDF CV.', 415)
+}
+
+function sendFile(
+  c: Context,
+  file: { buffer: Buffer; fileName: string; contentType: string },
+) {
+  const bytes = new Uint8Array(file.buffer.byteLength)
+  bytes.set(file.buffer)
+  return c.body(bytes, 200, {
+    'Content-Type': file.contentType,
+    'Content-Disposition': `inline; filename="${safeFileName(file.fileName)}"`,
+    'Cache-Control': 'private, no-store',
+  })
+}
+
+app.get('/api/me', async (c) => {
+  const session = c.get('session')
+  return c.json(await getMe(session.user.id, accountUser(session.user)))
+})
+
+app.post('/api/me/cv', async (c) => {
+  try {
+    const session = c.get('session')
+    const upload = await readCvUpload(c)
+    const cv = await saveBaseCv(session.user.id, upload)
+    return c.json({ cv }, 201)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/me/cv/:kind', async (c) => {
+  try {
+    const kind = c.req.param('kind')
+    if (kind !== 'docx' && kind !== 'pdf') {
+      return c.json({ error: 'Unknown file kind.' }, 400)
+    }
+    const session = c.get('session')
+    const file = await getBaseFile(session.user.id, kind as AccountCvKind)
+    if (!file) return c.json({ error: 'No CV uploaded.' }, 404)
+    return sendFile(c, file)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/me/cv', async (c) => {
+  try {
+    const session = c.get('session')
+    await deleteBaseCv(session.user.id)
+    return c.json({ ok: true })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/me/stories', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ stories: await listStories(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/me/stories', async (c) => {
+  try {
+    const session = c.get('session')
+    const body = (await c.req.json().catch(() => null)) as Partial<CvStory> | null
+    if (!body || typeof body.id !== 'string' || typeof body.userText !== 'string') {
+      return c.json({ error: 'A story needs an id and text.' }, 400)
+    }
+    const story = await saveStory(session.user.id, body as CvStory)
+    return c.json({ story }, 201)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/me/stories/:id', async (c) => {
+  try {
+    const session = c.get('session')
+    await deleteStory(session.user.id, c.req.param('id'))
+    return c.json({ ok: true })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/applications', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ applications: await listApplications(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/applications', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { jdText?: unknown } | null
+  const jdText = typeof body?.jdText === 'string' ? body.jdText.trim() : ''
+
+  if (jdText.length < MIN_JD_CHARS) {
+    return c.json({ error: 'Paste the job description first.' }, 400)
+  }
+  if (jdText.length > MAX_JD_CHARS) {
+    return c.json({ error: 'That posting is too long. Trim it below 40,000 characters.' }, 413)
+  }
+
+  const guard = guardJd(jdText)
+  if (guard.verdict === 'not-jd') {
+    return c.json({ error: guard.message || NOT_JD_MESSAGE, code: 'not-a-jd' }, 422)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json(await createApplication(session.user.id, jdText), 201)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/applications/:id', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json(await getApplication(session.user.id, c.req.param('id')))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.patch('/api/applications/:id', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    jdText?: unknown
+    classification?: unknown
+    status?: unknown
+  } | null
+
+  if (!body) return c.json({ error: 'Send an update.' }, 400)
+
+  const patch: UpdateApplicationPatch = {}
+
+  if (typeof body.jdText === 'string') {
+    const jdText = body.jdText.trim()
+    if (jdText.length < MIN_JD_CHARS) {
+      return c.json({ error: 'The job description is too short.' }, 400)
+    }
+    if (jdText.length > MAX_JD_CHARS) {
+      return c.json({ error: 'That posting is too long.' }, 413)
+    }
+    patch.jdText = jdText
+  }
+
+  if ('classification' in body) {
+    patch.classification = body.classification as UpdateApplicationPatch['classification']
+  }
+
+  if (
+    body.status === 'draft' ||
+    body.status === 'classified' ||
+    body.status === 'customized'
+  ) {
+    patch.status = body.status
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: 'Nothing to update.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json(await updateApplication(session.user.id, c.req.param('id'), patch))
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/applications/:id', async (c) => {
+  try {
+    const session = c.get('session')
+    await deleteApplication(session.user.id, c.req.param('id'))
+    return c.json({ ok: true })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.get('/api/applications/:id/cv/:kind', async (c) => {
+  try {
+    const kind = c.req.param('kind')
+    if (kind !== 'docx' && kind !== 'pdf') {
+      return c.json({ error: 'Unknown file kind.' }, 400)
+    }
+    const session = c.get('session')
+    const file = await getApplicationFile(
+      session.user.id,
+      c.req.param('id'),
+      kind as AccountCvKind,
+    )
+    return sendFile(c, file)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.put('/api/applications/:id/cv', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    docx?: unknown
+    pdf?: unknown
+  } | null
+
+  const docxBase64 = typeof body?.docx === 'string' ? body.docx : ''
+  const pdfBase64 = typeof body?.pdf === 'string' ? body.pdf : ''
+
+  if (!docxBase64 || !pdfBase64) {
+    return c.json({ error: 'Send the edited DOCX and PDF.' }, 400)
+  }
+  if (
+    docxBase64.length > MAX_DOCX_BYTES * 1.4 ||
+    pdfBase64.length > MAX_PDF_BYTES * 1.4
+  ) {
+    return c.json({ error: 'That CV is too large.' }, 413)
+  }
+
+  const docx = Uint8Array.from(Buffer.from(docxBase64, 'base64'))
+  const pdf = Uint8Array.from(Buffer.from(pdfBase64, 'base64'))
+
+  if (pdf[0] !== 0x25 || pdf[1] !== 0x50 || pdf[2] !== 0x44 || pdf[3] !== 0x46) {
+    return c.json({ error: 'The rendered PDF is invalid.' }, 422)
+  }
+
+  try {
+    await openDocx(docx)
+    const session = c.get('session')
+    return c.json(
+      await saveApplicationCv(session.user.id, c.req.param('id'), { docx, pdf }),
+    )
   } catch (error) {
     return cvFailure(c, error)
   }
