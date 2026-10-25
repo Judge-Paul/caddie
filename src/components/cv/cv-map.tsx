@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Eyebrow } from '@/components/ui/section'
 import { auditCv } from '@shared/cv-audit'
 import type { CvClassification } from '@shared/cv-classification'
 import { buildCvMap, cvMapTargets, type CvMap, type CvMapTarget } from '@shared/cv-map'
@@ -22,7 +23,7 @@ function targetStatus(target: CvMapTarget, audit: ReturnType<typeof auditCv> | n
   }
   const entry = audit?.targets.find((item) => item.target.blockId === target.blockId)
   if (!entry) return { label: 'Not scored', className: 'bg-muted text-muted-foreground' }
-  if (entry.protected) return { label: 'Protect', className: 'bg-success/10 text-success' }
+  if (entry.protected) return { label: 'Keep', className: 'bg-success/10 text-success' }
   if (entry.related) return { label: 'Worth showing', className: 'bg-related/70 text-related-foreground' }
   if (entry.generic) return { label: 'Generic', className: 'bg-muted text-muted-foreground' }
   return { label: 'Safe to swap', className: 'bg-brand-50 text-brand-700' }
@@ -119,13 +120,13 @@ export function CvMapDrawer({ open, cv, jd, onClose }: CvMapDrawerProps) {
           <div>
             <div className="flex items-center gap-2 text-brand-600">
               <ListTree className="size-4" strokeWidth={1.75} />
-              <p className="text-[10px] font-semibold tracking-[0.12em] uppercase">CV map</p>
+              <Eyebrow>CV outline</Eyebrow>
             </div>
             <h2 className="mt-1.5 text-[15px] leading-none font-semibold tracking-[-0.015em] text-ink">
-              What Caddie found
+              What Caddie sees in your CV
             </h2>
             <p className="mt-1.5 max-w-[40ch] text-[11.5px] leading-[1.45] text-muted-foreground">
-              Roles, projects and the blocks that are safe to change. Protect marks
+              Roles, projects and the blocks that are safe to change. Keep marks
               evidence that is carrying a must-have.
             </p>
           </div>
@@ -154,7 +155,7 @@ export function CvMapDrawer({ open, cv, jd, onClose }: CvMapDrawerProps) {
               <div className="grid grid-cols-3 gap-2">
                 <Stat label="Roles" value={map.roles.length} />
                 <Stat label="Projects" value={projectCount} />
-                <Stat label="Targets" value={targets.filter((target) => target.blockId && target.wholeBlock).length} />
+                <Stat label="Editable" value={targets.filter((target) => target.blockId && target.wholeBlock).length} />
               </div>
 
               <div className="space-y-4">

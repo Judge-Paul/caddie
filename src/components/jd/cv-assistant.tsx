@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Eyebrow, Notice } from '@/components/ui/section'
 import { fileToBase64 } from '@/lib/docx'
 import { planCvEdits } from '@/lib/plan'
 import { cn } from 'cn'
@@ -36,14 +37,6 @@ type CvAssistantProps = {
   gaps: FitGap[]
   initialGap: FitGap | null
   stories: CvStory[]
-}
-
-function Eyebrow({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-      {children}
-    </p>
-  )
 }
 
 function newStoryId() {
@@ -281,7 +274,7 @@ export function CvAssistant({
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-brand-600">
               <Sparkles className="size-4" strokeWidth={1.75} />
-              <Eyebrow>CV planner</Eyebrow>
+              <Eyebrow>Tailor CV</Eyebrow>
             </div>
             <h2 className="mt-1.5 text-[15px] leading-none font-semibold tracking-[-0.015em] text-ink">
               Put your work where it matters
@@ -356,7 +349,7 @@ export function CvAssistant({
                   Try again
                 </Button>
                 <Button className="max-sm:h-11" onClick={onDeepReadCv}>
-                  Deep read with Gemma
+                  Deep read
                 </Button>
               </div>
             </div>
@@ -540,14 +533,7 @@ export function CvAssistant({
                 </section>
               ) : null}
 
-              {error ? (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-[11px] leading-[1.45] text-muted-foreground"
-                >
-                  {error}
-                </p>
-              ) : null}
+              {error ? <Notice>{error}</Notice> : null}
             </div>
           )}
         </div>
