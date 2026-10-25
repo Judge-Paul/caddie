@@ -164,7 +164,7 @@ function ExperienceDialog({
               </h2>
               <p className="mt-1.5 max-w-[44ch] text-[11.5px] leading-[1.45] text-muted-foreground">
                 Write it in your own words. Caddie uses it to ground CV bullets,
-                cover letters and email drafts.
+                letters and email drafts.
               </p>
             </div>
             <Button
@@ -422,11 +422,11 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
       setFromName(me.user.name)
       setSendingMode('idle')
       setConfirmRemoveIdentity(false)
-      setSendingNotice('The sending identity was removed.')
+      setSendingNotice('Sending was removed.')
       await onRefreshMe()
     } catch (caught) {
       setConfirmRemoveIdentity(false)
-      setSendingError(caught instanceof Error ? caught.message : 'The sending identity could not be removed.')
+      setSendingError(caught instanceof Error ? caught.message : 'Sending could not be removed.')
     } finally {
       setSendingBusy(null)
     }
@@ -547,7 +547,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/15 px-4 py-6 text-center">
                   <p className="text-[12px] font-medium text-ink">No experience saved yet.</p>
                   <p className="mx-auto mt-1 max-w-[44ch] text-[11px] leading-[1.5] text-muted-foreground">
-                    Add one project or role. Future cover letters and email drafts can
+                    Add one project or role. Future letters and email drafts can
                     use it without asking again.
                   </p>
                   <Button variant="outline" size="sm" className="mt-3 bg-card max-sm:h-11" onClick={() => setEditing(null)}>
@@ -709,7 +709,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                   </div>
 
                   <p className="mt-2 text-[10px] leading-[1.45] text-muted-foreground">
-                    To replace the key, remove this identity and add it again.
+                    To replace the key, remove Sending and add it again.
                   </p>
                 </div>
               ) : sendingMode === 'idle' ? (
@@ -718,7 +718,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                     <Mail className="size-4" strokeWidth={1.75} />
                   </span>
                   <p className="mt-3 text-[12px] font-medium text-ink">
-                    No sending identity yet.
+                    No sending address yet.
                   </p>
                   <p className="mx-auto mt-1 max-w-[38ch] text-[11px] leading-[1.5] text-muted-foreground">
                     Add the address applications should come from. Caddie checks
@@ -726,7 +726,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                   </p>
                   <Button size="sm" className="mt-3 max-sm:h-11" onClick={startAddIdentity}>
                     <Plus />
-                    Add sending identity
+                    Add sending
                   </Button>
                 </div>
               ) : (
@@ -951,9 +951,9 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
 
       <ConfirmDialog
         open={confirmRemoveIdentity}
-        title="Remove sending identity?"
+        title="Remove sending?"
         description="This removes the from address and Resend key. Email sending stops immediately. You can add it again later."
-        confirmLabel="Remove identity"
+        confirmLabel="Remove sending"
         busy={sendingBusy === 'delete'}
         destructive
         onConfirm={() => void confirmDeleteIdentity()}
@@ -965,7 +965,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
       <ConfirmDialog
         open={Boolean(pendingStory)}
         title="Delete this experience?"
-        description="It will no longer be available to ground future CV edits, cover letters or emails."
+        description="It will no longer be available to ground future CV edits, letters or emails."
         confirmLabel="Delete experience"
         busy={deletingStory}
         destructive

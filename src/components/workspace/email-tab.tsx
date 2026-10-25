@@ -169,7 +169,7 @@ export function EmailTab({
           </h2>
           <p className="mt-1 max-w-[56ch] text-[11.5px] leading-[1.5] text-muted-foreground">
             This is the short application note. The CV is attached as a PDF; the
-            cover letter stays here as your own copy.
+            letter stays here as your own copy.
           </p>
         </div>
         {!locked ? (

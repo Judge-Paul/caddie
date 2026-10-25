@@ -101,14 +101,14 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 - **Applications table**: every role in one ledger: stage, package state, last
   updated and the next action. Search by role or company and filter by stage.
   Completed and sent applications stay visible and downloadable.
-- **Application workbench**: open a role to see the fit and the application
-  package before the raw CV. Tabs hold the Overview, CV, Cover letter and Email;
-  the posting stays alongside with its coverage marks and company research.
-- **Profile**: the base CV, the experience library, and the sending identity.
-  Experiences are your own words about work you actually did; they ground CV
-  bullets, cover letters and email drafts. The sending identity is a saved
-  connection, not an empty form: once added, Profile shows the from address,
-  verified domain and key suffix, with Edit and Remove actions.
+- **Application workbench**: open a role to see the next steps and the fit
+  before the raw CV. Tabs hold Plan, CV, Letter and Email; the posting stays
+  alongside with its coverage marks and company research.
+- **Profile**: the CV, Experience with the links Caddie has read, and the
+  Sending and Telegram connections. Experiences are your own words about work
+  you actually did; they ground CV bullets, letters and email drafts. Sending
+  is a saved connection, not an empty form: once added, Profile shows the from
+  address, verified domain and key suffix, with Edit and Remove actions.
 - **Cover letter and email**: Caddie first picks the story: a direct project
   match, a similar problem, a craft angle or an honest transferable angle, with
   one hero proof and one supporting proof. It then writes from those selected

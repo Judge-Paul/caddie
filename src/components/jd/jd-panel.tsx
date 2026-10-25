@@ -658,7 +658,7 @@ export function JdPanel({
                   <ClipboardPaste className="size-5" strokeWidth={1.75} />
                 </div>
                 <p className="mt-3 text-[13px] font-medium text-ink">
-                  Paste the job description
+                  Paste the posting
                 </p>
                 <p className="mt-1 max-w-[36ch] text-[12px] leading-[1.5] text-muted-foreground">
                   The posting, the requirements, all of it. Caddie reads it after

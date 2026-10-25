@@ -126,14 +126,16 @@ entrance animations on load, no bouncing.
 
 - Desktop is a fixed shell: `h-dvh overflow-hidden`, a global header, then an
   application workbench. The workbench has a left package pane and a right
-  posting rail (404–460px). The left pane holds the **Overview / CV / Cover
-  letter / Email** tabs; the CV paper lives inside the CV tab, centred in that
-  pane. The right rail is the classified posting, coverage marks and research.
+  posting rail (404–460px). The left pane holds the **Plan / CV / Letter /
+  Email** tabs; the CV paper lives inside the CV tab, centred in that
+  pane. Plan opens on the next-steps checklist, then match, documents, the
+  brief and experience. The right rail is the classified posting with Edit /
+  Match / Details modes, coverage marks and research.
 - Below `lg` the workbench stacks and the page scrolls normally. Tabs and row
   actions keep 44px touch targets.
-- The dashboard is a table, not a card grid: role and company, stage, package
-  state, last updated, then open/delete. Search and stage filters are real and
-  client-side.
+- The dashboard is a table, not a card grid: role and company, stage, document
+  pills (CV / Letter / Email), last updated, then open/delete. Search and
+  Active / Ready / Done filters are real and client-side.
 - **The sample CV component is authored at exactly 794×1123px** (`src/lib/page.ts`,
   A4 at 96dpi) and scaled with a CSS transform by
   `src/components/cv/cv-preview.tsx`. Never convert it to fluid units or
@@ -161,7 +163,8 @@ entrance animations on load, no bouncing.
   `/api/research`) requires a session.
 - The dashboard lists applications in a table and creates one from a pasted
   posting. The workspace is scoped to that application. **Profile** holds the
-  base CV, the experience library and the sending identity.
+  material (the CV, plus Experience with stories and the links Caddie has
+  read) and the connections (Sending and Telegram).
 - **Base CV files live in private Cloudflare R2**, with Mongo storing the
   object keys. Creating an application copies the base CV object so later
   replacing the profile CV does not rewrite old applications. Each application
@@ -202,9 +205,9 @@ entrance animations on load, no bouncing.
 
 ## Application package, drafts and sending
 
-- **The application is not a CV editor.** Overview is the default: coverage,
-  must-have gaps, package state, the role brief and relevant experiences. CV is
-  a tab for viewing/tailoring; Cover letter and Email are their own drafts.
+- **The application is not a CV editor.** Plan is the default: a next-steps
+  checklist, then match, documents, the role brief and relevant experiences. CV
+  is a tab for viewing/tailoring; Letter and Email are their own drafts.
 - **Cover letters and email drafts are generated in two passes.** First
   `server/compose-evidence.ts` builds a bounded evidence list from the CV text
   and relevant experiences. `server/compose-strategy-prompt.ts` chooses the
@@ -322,7 +325,7 @@ that `src/lib/match.ts` scores against the CV.
   there or in the prompt, not with component conditionals.
 - Classification is slow (tens of seconds) and costs credits. It starts on
   paste or sample load because the score depends on it, and stays available
-  from the Data tab for hand-typed text. Always show the loading state, keep
+  from the Details view for hand-typed text. Always show the loading state, keep
   the request abortable, and say where the text is sent.
 - **Public work** is read on explicit request from Profile. Website URLs must
   be public http(s); GitHub accepts a username or profile URL. Results are
@@ -496,8 +499,8 @@ Built: Google-only accounts through Better Auth, a MongoDB metadata store and
 private R2 CV storage (with legacy GridFS reads), a Telegram bot that links to
 the account, accepts CV documents, runs the application pipeline and applies by
 email (review or auto), signed preview links, an applications table, a
-per-application workbench with Overview/CV/Cover letter/Email tabs, a profile with the base CV, experience library and a saved
-sending identity, cover letter and email generation, application-email detection,
+per-application workbench with Plan/CV/Letter/Email tabs, a profile with the base CV, experience library and a saved
+sending identity, letter and email generation, application-email detection,
 per-user Resend sending with an encrypted key, application completion/locking,
 CV and cover-letter PDF downloads, base CV upload, per-application CV snapshots,
 public website/GitHub reading for draft evidence,

@@ -597,7 +597,7 @@ export function Dashboard({
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title={pendingDelete ? `Delete ${pendingDelete.title ?? 'application'}?` : 'Delete application?'}
-        description="The posting, CV snapshot, cover letter and email draft in this application will be removed."
+        description="The posting, CV snapshot, letter and email draft in this application will be removed."
         confirmLabel="Delete application"
         busy={deleting}
         destructive

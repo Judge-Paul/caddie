@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { JdPanel } from '@/components/jd/jd-panel'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Notice } from '@/components/ui/section'
 import { CvMapDrawer } from '@/components/cv/cv-map'
 import { CoverLetterTab } from '@/components/workspace/cover-letter-tab'
 import { EmailTab } from '@/components/workspace/email-tab'
@@ -566,35 +567,11 @@ export function Workspace({
                     </div>
                   </div>
 
-                  {downloadCvError ? (
-                    <p
-                      role="alert"
-                      className="mb-3 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] leading-[1.45] text-muted-foreground"
-                    >
-                      <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                      {downloadCvError}
-                    </p>
-                  ) : null}
+                  {downloadCvError ? <Notice className="mb-3">{downloadCvError}</Notice> : null}
 
-                  {jdError ? (
-                    <p
-                      role="alert"
-                      className="mb-3 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] leading-[1.45] text-muted-foreground"
-                    >
-                      <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                      {jdError}
-                    </p>
-                  ) : null}
+                  {jdError ? <Notice className="mb-3">{jdError}</Notice> : null}
 
-                  {cvLoadError ? (
-                    <p
-                      role="alert"
-                      className="mb-3 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] leading-[1.45] text-muted-foreground"
-                    >
-                      <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                      {cvLoadError}
-                    </p>
-                  ) : null}
+                  {cvLoadError ? <Notice className="mb-3">{cvLoadError}</Notice> : null}
 
                   {loadingCv ? (
                     <PaperPlaceholder label="Opening your CV" />
@@ -688,7 +665,7 @@ export function Workspace({
       <ConfirmDialog
         open={completeOpen}
         title="Complete this application?"
-        description="This locks the CV, cover letter, posting and email. You can still view and download the documents."
+        description="This locks the CV, letter, posting and email. You can still view and download the documents."
         confirmLabel="Complete application"
         busy={completeBusy}
         onConfirm={() => void handleComplete()}

@@ -59,7 +59,7 @@ export function AuthScreen() {
             Your CV, ready for the role.
           </h1>
           <p className="mt-2 max-w-[38ch] text-[12.5px] leading-[1.55] text-muted-foreground">
-            Paste a job description, see what your CV is missing, and tailor it
+            Paste a posting, see what your CV is missing, and tailor it
             with evidence you confirm. Every application stays in your account.
           </p>
 
