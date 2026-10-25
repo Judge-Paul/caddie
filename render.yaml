@@ -18,7 +18,7 @@ envVarGroups:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: APP_ENCRYPTION_KEY
-        generateValue: true
+        sync: false
       - key: CF_ACCOUNT_ID
         sync: false
       - key: CF_API_KEY

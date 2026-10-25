@@ -12,8 +12,10 @@ and each user's Resend account are external services.
 2. **Google OAuth.** Add
    `https://your-domain/api/auth/callback/google` as an authorized redirect URI.
    Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the environment.
-3. **MongoDB.** Use Atlas or another reachable deployment. Allow the host's
-   egress IP. The app creates its indexes on first connection.
+3. **MongoDB.** Use Atlas or another reachable deployment. Create a dedicated
+   app user with `readWrite` on the `caddie` database, not an Atlas admin user.
+   Allow the Render service's outbound traffic in Atlas Network Access. The app
+   creates its indexes on first connection.
 4. **Cloudflare R2.** Create a private bucket and an R2 API token with Object
    Read & Write. Set the four `R2_*` values. Run `npm run migrate:r2` once if any
    existing CVs are still in GridFS.
@@ -23,7 +25,8 @@ and each user's Resend account are external services.
 7. **Stable secrets.** Generate `BETTER_AUTH_SECRET` and
    `APP_ENCRYPTION_KEY` with `openssl rand -base64 32`. Keep both stable:
    changing the first invalidates sessions and signed links, and changing the
-   second makes saved Resend keys unreadable.
+   second makes saved Resend keys unreadable. When moving existing Mongo data,
+   use the same `APP_ENCRYPTION_KEY` that encrypted the saved Resend identity.
 8. **Telegram.** Create a bot with `@BotFather`, set `TELEGRAM_BOT_TOKEN`, and
    set `TELEGRAM_BOT_USERNAME` (without `@`). Keep `BETTER_AUTH_URL` public so
    the Profile button and `/start` sign-in links work from a phone.
@@ -57,6 +60,17 @@ TELEGRAM_BOT_TOKEN=...
 `GITHUB_TOKEN` and `R2_ENDPOINT` are optional. Never expose these through a
 `VITE_` prefix.
 
+## Moving the current local account to Atlas
+
+The Atlas `caddie` database was empty when the connection was checked; the
+existing account metadata is still in the local MongoDB. Before switching
+Render to Atlas, take a backup and copy the `caddie` database with
+`mongodump`/`mongorestore`. CV objects are already in R2, so the Mongo documents
+and their R2 object keys must move together. Keep the current
+`APP_ENCRYPTION_KEY` to preserve the saved Resend connection. Verify the
+profile/application counts and open the existing CVs through the app before
+cutting over. Do not rerun `npm run migrate:r2` on an already migrated database.
+
 ## Without Docker
 
 The host needs Bun, LibreOffice Writer, poppler, and the Carlito/Caladea/
@@ -69,9 +83,11 @@ NODE_ENV=production npm run start   # web + API on :8787
 npm run start:bot                  # separate process, long polling
 ```
 
-Keep both processes alive with the host's process manager. The web process can
-be scaled; run **exactly one** bot process because Telegram long polling does not
-support multiple consumers safely.
+Keep both processes alive with the host's process manager. Run **one web
+instance** and **exactly one** bot process for the initial deployment. The
+render queue and per-user throttles are in-process; scaling web instances needs
+a shared queue and rate-limit store. Telegram long polling cannot have multiple
+consumers safely.
 
 ## With Docker Compose
 
@@ -131,9 +147,10 @@ Classification and cover-letter generation can take tens of seconds.
 - R2 stores base CVs and application CV snapshots. Back up the bucket.
 - `.cache/` holds classification, company identity and research caches. In
   Compose it is mounted as a named volume. It is optional and can be discarded.
-- There is no job queue. A bot restart during a run loses the in-flight progress;
-  the application remains in the account and can be opened again.
-- One bot process only. Multiple web processes are fine.
+- There is no durable job queue. A bot restart during a run loses the in-flight
+  progress; the application remains in the account and can be opened again.
+- The LibreOffice queue allows one active render and up to three waiting renders
+  per web process. Expensive AI routes also have per-user in-memory throttles.
 - LibreOffice renders need CPU and memory; do not run the web container on a
   128 MB instance.
 
