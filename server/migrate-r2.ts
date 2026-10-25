@@ -3,6 +3,7 @@ import { GridFSBucket, MongoClient, ObjectId } from 'mongodb'
 import {
   applicationCvKey,
   baseCvKey,
+  getObject,
   putObject,
   storageConfigured,
 } from './storage'
@@ -44,6 +45,13 @@ async function deleteGridFs(id: ObjectId | null | undefined) {
   await files.delete(id).catch(() => {})
 }
 
+async function verifyUpload(key: string, source: Buffer) {
+  const stored = await getObject(key)
+  if (!stored.equals(source)) {
+    throw new Error(`R2 upload verification failed for ${key}`)
+  }
+}
+
 async function migrateCv(
   cv: StoredCv,
   userId: string,
@@ -63,16 +71,20 @@ async function migrateCv(
       next.docxKey = applicationId
         ? applicationCvKey(userId, applicationId, 'docx')
         : baseCvKey(userId, 'docx')
-      await putObject(next.docxKey, await readGridFs(cv.docxFileId), DOCX_MIME)
       created.push(next.docxKey)
+      const source = await readGridFs(cv.docxFileId)
+      await putObject(next.docxKey, source, DOCX_MIME)
+      await verifyUpload(next.docxKey, source)
     }
 
     if (!next.pdfKey && cv.pdfFileId) {
       next.pdfKey = applicationId
         ? applicationCvKey(userId, applicationId, 'pdf')
         : baseCvKey(userId, 'pdf')
-      await putObject(next.pdfKey, await readGridFs(cv.pdfFileId), PDF_MIME)
       created.push(next.pdfKey)
+      const source = await readGridFs(cv.pdfFileId)
+      await putObject(next.pdfKey, source, PDF_MIME)
+      await verifyUpload(next.pdfKey, source)
     }
 
     if (!next.pdfKey) throw new Error('CV has no PDF to migrate.')
