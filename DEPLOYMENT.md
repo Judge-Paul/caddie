@@ -25,7 +25,8 @@ and each user's Resend account are external services.
    changing the first invalidates sessions and signed links, and changing the
    second makes saved Resend keys unreadable.
 8. **Telegram.** Create a bot with `@BotFather`, set `TELEGRAM_BOT_TOKEN`, and
-   keep `BETTER_AUTH_URL` public so `/start` links work from a phone.
+   set `TELEGRAM_BOT_USERNAME` (without `@`). Keep `BETTER_AUTH_URL` public so
+   the Profile button and `/start` sign-in links work from a phone.
 9. **Resend.** Each user adds their own key and verified domain in Profile.
    There is no server-wide Resend key.
 

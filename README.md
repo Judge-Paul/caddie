@@ -69,8 +69,9 @@ then paste a job description to create an application.
 ### Telegram
 
 Create a bot with [@BotFather](https://t.me/BotFather), put its token in
-`TELEGRAM_BOT_TOKEN`, and run `npm run bot`. The bot uses long polling, so the
-API and bot are separate processes using the same MongoDB and R2 account.
+`TELEGRAM_BOT_TOKEN`, set `TELEGRAM_BOT_USERNAME` without the `@`, and run
+`npm run bot`. The bot uses long polling, so the API and bot are separate
+processes using the same MongoDB and R2 account.
 
 In Telegram, send `/start` and open the connect link. After Google sign-in, the
 chat is linked to your Caddie account and the status appears in Profile. Send a

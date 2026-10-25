@@ -74,6 +74,7 @@ export type SavePublicWorkInput = {
 
 export type TelegramStatus = {
   connected: boolean
+  botUrl: string | null
   username: string | null
   firstName: string | null
   autoApply: boolean

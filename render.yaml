@@ -35,6 +35,8 @@ envVarGroups:
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
       - key: GITHUB_TOKEN
         sync: false
 

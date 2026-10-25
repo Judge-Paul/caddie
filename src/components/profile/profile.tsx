@@ -937,10 +937,23 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                   </Button>
                 </div>
               ) : (
-                <p className="mt-3 rounded-lg border border-dashed border-border bg-muted/15 px-3 py-3 text-[10.5px] leading-[1.5] text-muted-foreground">
-                  Open the Caddie bot in Telegram and send /start. The bot will
-                  give you a link to connect this account.
-                </p>
+                <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/15 px-3 py-3">
+                  <p className="text-[10.5px] leading-[1.5] text-muted-foreground">
+                    Open the Caddie bot in Telegram and send /start. It will
+                    give you a sign-in link to connect this account.
+                  </p>
+                  {me.telegram.botUrl ? (
+                    <a
+                      href={me.telegram.botUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-md text-[11px] font-medium text-brand-700 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Open Caddie in Telegram
+                      <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                    </a>
+                  ) : null}
+                </div>
               )}
 
               {telegramError ? (

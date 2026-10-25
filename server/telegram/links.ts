@@ -188,9 +188,12 @@ function store() {
 }
 
 function status(doc: TelegramLinkDoc | null): TelegramStatus {
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '')
+  const botUrl = botUsername ? `https://t.me/${botUsername}` : null
   if (!doc) {
     return {
       connected: false,
+      botUrl,
       username: null,
       firstName: null,
       autoApply: false,
@@ -199,6 +202,7 @@ function status(doc: TelegramLinkDoc | null): TelegramStatus {
   }
   return {
     connected: true,
+    botUrl,
     username: doc.username,
     firstName: doc.firstName,
     autoApply: doc.autoApply,
