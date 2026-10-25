@@ -1,6 +1,7 @@
 import type { PublicWork } from '../shared/account'
 import type { CvStory } from '../shared/cv-fit'
 import type { JdClassification } from '../shared/jd-classification'
+import { unifyProjects, type UnifiedProject } from '../shared/projects'
 
 export type ComposeEvidence = {
   id: string
@@ -63,43 +64,62 @@ function jdTerms(jd: JdClassification) {
   return terms
 }
 
-function publicWorkEvidence(publicWork: PublicWork | null, terms: Set<string>) {
-  if (!publicWork) return []
-  const candidates: { text: string; label: string }[] = []
-
-  for (const source of [publicWork.website, publicWork.github]) {
-    if (!source || source.error) continue
-    const sourceName = source.kind === 'github' ? 'GitHub' : 'Website'
-    if (source.projects.length === 0) {
-      const text = clean([source.headline, source.summary].filter(Boolean).join(' '))
-      if (text.length >= 30) {
-        candidates.push({ text, label: `${sourceName} profile` })
-      }
-      continue
-    }
-    for (const project of source.projects) {
-      const text = clean(
+/**
+ * One evidence entry per project worked on. A GitHub project, a website case
+ * study and a stored story about the same work merge into a single entry,
+ * with the story kept as context rather than a second project.
+ */
+function unifiedProjectEvidence(
+  unified: UnifiedProject[],
+  terms: Set<string>,
+) {
+  return unified
+    .map((project, index) => {
+      const head = clean(
         [
-          `${project.name}:`,
-          project.description,
-          project.skills.length ? `(${project.skills.join(', ')})` : '',
+          project.name ? `${project.name}:` : '',
+          project.description ?? '',
+          project.tech.length ? `(${project.tech.join(', ')})` : '',
         ]
           .filter(Boolean)
           .join(' '),
       )
-      if (text.length < 20) continue
-      candidates.push({ text, label: `${sourceName} project` })
+      const context = project.narration.length
+        ? clean(project.narration[0]).slice(0, 240)
+        : ''
+      const text = clean(
+        [head, context ? `Context: ${context}` : ''].filter(Boolean).join(' '),
+      )
+      const label = project.name
+        ? `Project: ${project.name}`
+        : project.company
+          ? `Work at ${project.company}`
+          : 'Experience'
+      const source: ComposeEvidence['source'] =
+        project.sources.includes('github') || project.sources.includes('website')
+          ? 'profile'
+          : 'story'
+      return { text, label, source, index, score: scoreLine(text, terms) }
+    })
+    .filter((candidate) => candidate.text.length >= 20)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 8)
+}
+
+function publicWorkProfileEvidence(publicWork: PublicWork | null) {
+  if (!publicWork) return []
+  const candidates: { text: string; label: string }[] = []
+
+  for (const source of [publicWork.website, publicWork.github]) {
+    if (!source || source.error || source.projects.length > 0) continue
+    const sourceName = source.kind === 'github' ? 'GitHub' : 'Website'
+    const text = clean([source.headline, source.summary].filter(Boolean).join(' '))
+    if (text.length >= 30) {
+      candidates.push({ text, label: `${sourceName} profile` })
     }
   }
 
   return candidates
-    .map((candidate, index) => ({
-      ...candidate,
-      index,
-      score: scoreLine(candidate.text, terms),
-    }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, 4)
 }
 
 export function buildComposeEvidence(
@@ -136,29 +156,28 @@ export function buildComposeEvidence(
     })
   }
 
-  for (const [index, candidate] of publicWorkEvidence(publicWork, terms).entries()) {
+  const unified = unifyProjects({ publicWork, stories: stories.slice(0, 10) })
+  for (const [index, candidate] of unifiedProjectEvidence(unified, terms).entries()) {
     const key = candidate.text.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
     evidence.push({
-      id: `profile:${index + 1}`,
-      source: 'profile',
+      id: `project:${index + 1}`,
+      source: candidate.source,
       text: candidate.text,
       label: candidate.label,
     })
   }
 
-  for (const story of stories.slice(0, 8)) {
-    const text = clean(story.bullet || story.userText)
-    if (!text || text.length < 30) continue
-    const key = text.toLowerCase()
+  for (const candidate of publicWorkProfileEvidence(publicWork)) {
+    const key = candidate.text.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
     evidence.push({
-      id: `story:${story.id}`,
-      source: 'story',
-      text,
-      label: [story.title, story.company].filter(Boolean).join(' at ') || 'Experience',
+      id: `profile:${evidence.length + 1}`,
+      source: 'profile',
+      text: candidate.text,
+      label: candidate.label,
     })
   }
 
