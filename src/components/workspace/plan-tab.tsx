@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Eyebrow } from '@/components/ui/section'
 import type { Score } from '@/lib/match'
 import type { ApplicationDetail } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
@@ -10,6 +11,7 @@ import {
 } from '@shared/jd-classification'
 import {
   ArrowRight,
+  Check,
   FileText,
   Mail,
   PenLine,
@@ -28,14 +30,6 @@ type PlanTabProps = {
   onOpenProfile: () => void
 }
 
-function SectionTitle({ children }: { children: string }) {
-  return (
-    <p className="text-[9.5px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-      {children}
-    </p>
-  )
-}
-
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -44,6 +38,67 @@ function Fact({ label, value }: { label: string; value: string }) {
       </dt>
       <dd className="mt-0.5 text-[11.5px] leading-[1.4] text-ink">{value}</dd>
     </div>
+  )
+}
+
+type Step = {
+  label: string
+  hint: string
+  state: 'done' | 'current' | 'todo'
+  actionLabel?: string
+  onAction?: () => void
+}
+
+function NextSteps({ steps }: { steps: Step[] }) {
+  return (
+    <ol className="mt-3 space-y-1">
+      {steps.map((step, index) => (
+        <li
+          key={step.label}
+          className="flex items-center justify-between gap-3 rounded-lg px-2 py-2"
+        >
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span
+              aria-hidden="true"
+              className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums ${
+                step.state === 'done'
+                  ? 'bg-success/10 text-success'
+                  : step.state === 'current'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {step.state === 'done' ? (
+                <Check className="size-3" strokeWidth={2.5} />
+              ) : (
+                index + 1
+              )}
+            </span>
+            <div className="min-w-0">
+              <p
+                className={`text-[12px] font-medium ${
+                  step.state === 'todo' ? 'text-muted-foreground' : 'text-ink'
+                }`}
+              >
+                {step.label}
+              </p>
+              <p className="mt-0.5 text-[10.5px] leading-[1.45] text-muted-foreground">
+                {step.hint}
+              </p>
+            </div>
+          </div>
+          {step.state === 'current' && step.actionLabel && step.onAction ? (
+            <Button
+              size="xs"
+              className="shrink-0 max-sm:h-11"
+              onClick={step.onAction}
+            >
+              {step.actionLabel}
+            </Button>
+          ) : null}
+        </li>
+      ))}
+    </ol>
   )
 }
 
@@ -98,6 +153,76 @@ export function PlanTab({
   const gaps = score?.gaps ?? []
   const related = score?.related ?? []
   const sent = Boolean(application.sentAt)
+  const finished = Boolean(application.sentAt || application.completedAt)
+
+  const classified = Boolean(application.classification)
+  const tailored = application.status === 'customized'
+  const covered = classified && score?.coverage !== null && gaps.length === 0
+
+  const steps: Step[] = [
+    {
+      label: 'Read the posting',
+      hint: classified
+        ? 'Posting read. The match below follows it.'
+        : 'Paste the posting in the panel on the right.',
+      state: classified ? 'done' : 'current',
+    },
+    {
+      label: 'Tailor the CV',
+      hint: tailored
+        ? 'CV tailored to this posting.'
+        : covered
+          ? 'Every must-have is already covered.'
+          : 'Tell Caddie what you have done; it proposes small CV edits.',
+      state: tailored || covered ? 'done' : classified ? 'current' : 'todo',
+      actionLabel: 'Tailor CV',
+      onAction: onTailorCv,
+    },
+    {
+      label: 'Draft the letter',
+      hint: application.hasCoverLetter
+        ? 'Letter drafted. You can still edit every line.'
+        : 'A letter grounded in your CV and experience.',
+      state: application.hasCoverLetter
+        ? 'done'
+        : classified
+          ? 'current'
+          : 'todo',
+      actionLabel: 'Open letter',
+      onAction: () => onOpenTab('letter'),
+    },
+    {
+      label: 'Draft the email',
+      hint: application.hasEmailDraft
+        ? 'Email drafted.'
+        : 'The short note that carries the CV.',
+      state: application.hasEmailDraft
+        ? 'done'
+        : classified
+          ? 'current'
+          : 'todo',
+      actionLabel: 'Open email',
+      onAction: () => onOpenTab('email'),
+    },
+    {
+      label: 'Send or mark done',
+      hint: application.sentAt
+        ? `Sent${application.sentTo ? ` to ${application.sentTo}` : ''}.`
+        : application.completedAt
+          ? 'Marked done without sending.'
+          : 'Send from your own address, or mark the application done.',
+      state: finished ? 'done' : classified ? 'current' : 'todo',
+      actionLabel: 'Open email',
+      onAction: () => onOpenTab('email'),
+    },
+  ]
+
+  const currentIndex = steps.findIndex((step) => step.state === 'current')
+  const ordered = steps.map((step, index) => ({
+    ...step,
+    state:
+      step.state === 'current' && index !== currentIndex ? 'todo' : step.state,
+  }))
 
   const work = jd
     ? [
@@ -112,9 +237,14 @@ export function PlanTab({
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <section className="p-5">
+        <Eyebrow>Next steps</Eyebrow>
+        <NextSteps steps={ordered} />
+      </section>
+
+      <section className="border-t border-border/70 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <SectionTitle>Fit</SectionTitle>
+            <Eyebrow>Match</Eyebrow>
             {jd ? (
               <p className="mt-2 max-w-[50ch] text-[12.5px] leading-[1.55] text-ink">
                 {jd.summary}
@@ -156,7 +286,7 @@ export function PlanTab({
             {gaps.length > 0 ? (
               <div className="mt-4">
                 <div className="flex items-center justify-between gap-3">
-                  <SectionTitle>Must-haves to address</SectionTitle>
+                  <Eyebrow>Must-haves to address</Eyebrow>
                   {locked ? (
                     <span className="text-[10px] text-muted-foreground">Locked</span>
                   ) : (
@@ -195,7 +325,7 @@ export function PlanTab({
 
             {related.length > 0 ? (
               <div className="mt-3">
-                <SectionTitle>Worth showing</SectionTitle>
+                <Eyebrow>Worth showing</Eyebrow>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {related.slice(0, 6).map((item) => (
                     <span
@@ -213,7 +343,7 @@ export function PlanTab({
       </section>
 
       <section className="border-t border-border/70 p-5">
-        <SectionTitle>Application package</SectionTitle>
+        <Eyebrow>Documents</Eyebrow>
         <div className="mt-1 divide-y divide-border/60">
           <PackageRow
             icon={<FileText className="size-3.5" strokeWidth={1.75} />}
@@ -228,7 +358,7 @@ export function PlanTab({
           />
           <PackageRow
             icon={<PenLine className="size-3.5" strokeWidth={1.75} />}
-            label="Cover letter"
+            label="Letter"
             status={application.hasCoverLetter ? 'Drafted' : 'Not started'}
             action={application.hasCoverLetter || locked ? 'View' : 'Draft'}
             onClick={() => onOpenTab('letter')}
@@ -251,7 +381,7 @@ export function PlanTab({
 
       {jd ? (
         <section className="border-t border-border/70 p-5">
-          <SectionTitle>The brief</SectionTitle>
+          <Eyebrow>The brief</Eyebrow>
           <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3">
             <Fact label="Work" value={work || 'Not stated'} />
             <Fact
@@ -291,7 +421,7 @@ export function PlanTab({
 
       <section className="border-t border-border/70 p-5">
         <div className="flex items-center justify-between gap-3">
-          <SectionTitle>Experience Caddie can draw on</SectionTitle>
+          <Eyebrow>Experience</Eyebrow>
           <Button
             variant="ghost"
             size="xs"
@@ -306,7 +436,7 @@ export function PlanTab({
         {stories.length === 0 ? (
           <div className="mt-3 flex items-start justify-between gap-4 rounded-lg border border-dashed border-border bg-muted/15 px-3 py-3">
             <p className="max-w-[48ch] text-[11px] leading-[1.5] text-muted-foreground">
-              Add the work behind the CV. Caddie can use it in the cover letter and
+              Add the work behind the CV. Caddie can use it in the letter and
               email without asking again.
             </p>
             <Button variant="outline" size="xs" className="shrink-0 bg-card max-sm:h-11" onClick={onOpenProfile}>
