@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { Eyebrow, Notice } from '@/components/ui/section'
 import {
   applicationStage,
   STAGE_LABELS,
@@ -11,19 +12,17 @@ import {
 } from '@/lib/application-stage'
 import type { AccountMe, ApplicationSummary } from '@shared/account'
 import {
-  AlertCircle,
   ArrowUpRight,
   BriefcaseBusiness,
   FileText,
   LoaderCircle,
-  Mail,
-  PenLine,
   Plus,
   Search,
   Trash2,
   Upload,
   X,
 } from 'lucide-react'
+
 
 type DashboardProps = {
   me: AccountMe
@@ -66,47 +65,53 @@ function monogram(application: ApplicationSummary) {
   return source.trim().slice(0, 1).toUpperCase()
 }
 
-const STAGES = ['draft', 'reading', 'tailored', 'ready', 'completed', 'sent'] as const
+type ApplicationGroup = 'active' | 'ready' | 'done'
 
-function PackageIcons({ application }: { application: ApplicationSummary }) {
-  const label = [
-    'CV',
-    application.hasCoverLetter ? 'cover letter' : 'no cover letter',
-    application.hasEmailDraft ? 'email draft' : 'no email draft',
-  ].join(', ')
+const GROUPS: { id: 'all' | ApplicationGroup; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'done', label: 'Done' },
+]
+
+function groupOf(application: ApplicationSummary): ApplicationGroup {
+  const stage = applicationStage(application)
+  if (stage === 'ready') return 'ready'
+  if (stage === 'completed' || stage === 'sent') return 'done'
+  return 'active'
+}
+
+function DocumentPills({ application }: { application: ApplicationSummary }) {
+  const documents = [
+    { label: 'CV', present: true },
+    { label: 'Letter', present: application.hasCoverLetter },
+    { label: 'Email', present: application.hasEmailDraft },
+  ]
+  const label = documents
+    .map((document) =>
+      document.present ? document.label : `no ${document.label.toLowerCase()}`,
+    )
+    .join(', ')
 
   return (
     <div
       role="img"
-      aria-label={`Application package: ${label}`}
+      aria-label={`Documents: ${label}`}
       className="flex items-center gap-1"
     >
-      <span
-        title="CV snapshot"
-        className="flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600"
-      >
-        <FileText className="size-3.5" strokeWidth={1.75} />
-      </span>
-      <span
-        title={application.hasCoverLetter ? 'Cover letter drafted' : 'No cover letter'}
-        className={
-          application.hasCoverLetter
-            ? 'flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600'
-            : 'flex size-6 items-center justify-center rounded-md bg-muted/60 text-muted-foreground/45'
-        }
-      >
-        <PenLine className="size-3.5" strokeWidth={1.75} />
-      </span>
-      <span
-        title={application.hasEmailDraft ? 'Email drafted' : 'No email draft'}
-        className={
-          application.hasEmailDraft
-            ? 'flex size-6 items-center justify-center rounded-md bg-brand-50 text-brand-600'
-            : 'flex size-6 items-center justify-center rounded-md bg-muted/60 text-muted-foreground/45'
-        }
-      >
-        <Mail className="size-3.5" strokeWidth={1.75} />
-      </span>
+      {documents.map((document) => (
+        <span
+          key={document.label}
+          title={document.present ? `${document.label} ready` : `No ${document.label.toLowerCase()} yet`}
+          className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${
+            document.present
+              ? 'bg-brand-50 text-brand-700'
+              : 'bg-muted/60 text-muted-foreground/50'
+          }`}
+        >
+          {document.label}
+        </span>
+      ))}
     </div>
   )
 }
@@ -178,11 +183,9 @@ function NewApplicationDialog({
         >
           <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
             <div>
-              <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                New application
-              </p>
+              <Eyebrow>New application</Eyebrow>
               <h2 className="mt-1 text-[16px] leading-none font-semibold tracking-[-0.015em] text-ink">
-                Paste the job description
+                Paste the posting
               </h2>
               <p className="mt-1.5 text-[11.5px] leading-[1.45] text-muted-foreground">
                 Caddie will read the posting and open an application workspace.
@@ -201,11 +204,8 @@ function NewApplicationDialog({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-            <label
-              htmlFor="new-application-jd"
-              className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase"
-            >
-              Job description
+            <label htmlFor="new-application-jd">
+              <Eyebrow>Posting</Eyebrow>
             </label>
             <textarea
               id="new-application-jd"
@@ -221,15 +221,7 @@ function NewApplicationDialog({
               className="mt-1.5 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[12px] leading-[1.6] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
 
-            {error ? (
-              <p
-                role="alert"
-                className="mt-2 flex items-start gap-1.5 text-[11px] leading-[1.45] text-muted-foreground"
-              >
-                <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                {error}
-              </p>
-            ) : null}
+            {error ? <Notice className="mt-2">{error}</Notice> : null}
           </div>
 
           <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border/70 bg-muted/20 px-5 py-3">
@@ -302,7 +294,7 @@ function ApplicationRow({
       </td>
 
       <td className="hidden py-3 pr-3 md:table-cell">
-        <PackageIcons application={application} />
+        <DocumentPills application={application} />
       </td>
 
       <td className="hidden py-3 pr-3 text-[11px] tabular-nums text-muted-foreground sm:table-cell">
@@ -353,7 +345,7 @@ export function Dashboard({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | (typeof STAGES)[number]>('all')
+  const [filter, setFilter] = useState<'all' | ApplicationGroup>('all')
   const [pendingDelete, setPendingDelete] = useState<ApplicationSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -363,16 +355,15 @@ export function Dashboard({
 
   const counts = applications.reduce<Record<string, number>>(
     (current, application) => {
-      const stage = applicationStage(application)
-      current[stage] = (current[stage] ?? 0) + 1
+      const group = groupOf(application)
+      current[group] = (current[group] ?? 0) + 1
       return current
     },
     {},
   )
 
   const filtered = applications.filter((application) => {
-    const stage = applicationStage(application)
-    if (filter !== 'all' && stage !== filter) return false
+    if (filter !== 'all' && groupOf(application) !== filter) return false
     const query = search.trim().toLowerCase()
     if (!query) return true
     return (
@@ -473,13 +464,7 @@ export function Dashboard({
         </div>
 
         {actionError || uploadError ? (
-          <p
-            role="alert"
-            className="mt-4 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-[11.5px] leading-[1.45] text-muted-foreground"
-          >
-            <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-            {actionError || uploadError}
-          </p>
+          <Notice className="mt-4">{actionError || uploadError}</Notice>
         ) : null}
 
         <section className="mt-7">
@@ -502,21 +487,17 @@ export function Dashboard({
               <div
                 className="flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-muted p-0.5 [scrollbar-width:none] sm:flex-nowrap sm:overflow-x-auto [&::-webkit-scrollbar]:hidden"
                 role="group"
-                aria-label="Filter applications by stage"
+                aria-label="Filter applications"
               >
-                <FilterButton
-                  active={filter === 'all'}
-                  onClick={() => setFilter('all')}
-                  label="All"
-                  count={applications.length}
-                />
-                {STAGES.map((stage) => (
+                {GROUPS.map((group) => (
                   <FilterButton
-                    key={stage}
-                    active={filter === stage}
-                    onClick={() => setFilter(stage)}
-                    label={STAGE_LABELS[stage]}
-                    count={counts[stage] ?? 0}
+                    key={group.id}
+                    active={filter === group.id}
+                    onClick={() => setFilter(group.id)}
+                    label={group.label}
+                    count={
+                      group.id === 'all' ? applications.length : counts[group.id] ?? 0
+                    }
                   />
                 ))}
               </div>
@@ -575,7 +556,7 @@ export function Dashboard({
                       Stage
                     </th>
                     <th scope="col" className="hidden py-2.5 pr-3 font-semibold md:table-cell">
-                      Package
+                      Documents
                     </th>
                     <th scope="col" className="hidden py-2.5 pr-3 font-semibold sm:table-cell">
                       Updated
