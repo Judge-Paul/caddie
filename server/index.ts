@@ -964,4 +964,4 @@ const port = Number(process.env.PORT ?? 8787)
 
 console.log(`Caddie classifier listening on http://localhost:${port}`)
 
-export default { port, fetch: app.fetch }
+export default { port, hostname: '0.0.0.0', fetch: app.fetch }

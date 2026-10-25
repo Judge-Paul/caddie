@@ -88,6 +88,26 @@ outbound access to Telegram, MongoDB, R2, Cloudflare and Browserbase.
 The image also serves `dist/` directly. There is no separate static host and no
 CORS configuration.
 
+## Render
+
+Import the repository as a Blueprint. `render.yaml` creates two services from
+the same Docker image:
+
+- `caddie` — public web service with `/api/health` as its health check.
+- `caddie-telegram` — background worker running `bun server/telegram/index.ts`.
+
+Set the shared environment group from the dashboard. `BETTER_AUTH_URL` must be
+the final public URL, including `https://`; set it after Render assigns the
+service URL (or after attaching a custom domain) and redeploy. Google's
+authorized redirect URI must use the same host.
+
+The web service needs the standard instance plan because LibreOffice is memory
+hungry. Background workers are a paid Render resource. Run exactly one
+`caddie-telegram` instance; do not enable scaling on the worker.
+
+Render injects `PORT`; the server binds to it on `0.0.0.0`. Telegram uses long
+polling, so the worker needs no public port or webhook.
+
 ## Reverse proxy
 
 Use a proxy that forwards the public origin to `127.0.0.1:8787` and allows large

@@ -14,7 +14,6 @@ RUN npm prune --omit=dev
 FROM oven/bun:1.3.14
 
 ENV NODE_ENV=production \
-    PORT=8787 \
     HOME=/home/bun \
     SOFFICE_BIN=soffice
 
