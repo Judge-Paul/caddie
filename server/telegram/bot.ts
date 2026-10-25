@@ -94,10 +94,8 @@ async function connectKeyboard(
   chatId: string,
   profile: { username?: string | null; firstName?: string | null },
 ) {
-  return new InlineKeyboard().url(
-    'Connect Caddie',
-    await telegramLinkUrl(chatId, profile),
-  )
+  const url = await telegramLinkUrl(chatId, profile)
+  return url ? new InlineKeyboard().url('Connect Caddie', url) : null
 }
 
 async function requireLink(ctx: Context) {
@@ -105,14 +103,19 @@ async function requireLink(ctx: Context) {
   if (!chatId) return null
   const link = await telegramLinkForChat(String(chatId))
   if (!link) {
+    const keyboard = await connectKeyboard(String(chatId), {
+      username: ctx.from?.username ?? null,
+      firstName: ctx.from?.first_name ?? null,
+    })
+    if (!keyboard) {
+      await ctx.reply(
+        'Caddie is online, but account linking needs BETTER_AUTH_URL set to a public HTTPS address. The current local address cannot be opened from Telegram.',
+      )
+      return null
+    }
     await ctx.reply(
-      'Connect this Telegram chat to your Caddie account first. Tap the button below, sign in, then come back here.',
-      {
-        reply_markup: await connectKeyboard(String(chatId), {
-          username: ctx.from?.username ?? null,
-          firstName: ctx.from?.first_name ?? null,
-        }),
-      },
+      'Connect this Telegram chat to your Caddie account first. Tap the button below, sign in, then confirm the chat on the site.',
+      { reply_markup: keyboard },
     )
     return null
   }

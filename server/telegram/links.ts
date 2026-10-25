@@ -269,9 +269,30 @@ export async function telegramLinkUrl(
   chatId: string,
   profile: { username?: string | null; firstName?: string | null } = {},
 ) {
-  const base = process.env.BETTER_AUTH_URL?.trim() || 'http://localhost:5173'
-  const url = new URL(base)
-  url.searchParams.set('telegram', await createTelegramLink(chatId, profile))
+  const base = process.env.BETTER_AUTH_URL?.trim()
+  if (!base) return null
+
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase()
+  if (
+    url.protocol !== 'https:' ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1'
+  ) {
+    return null
+  }
+
+  url.searchParams.set(
+    'telegram',
+    await createTelegramLink(chatId, profile),
+  )
   return url.toString()
 }
 
