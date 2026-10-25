@@ -224,7 +224,7 @@ export async function downloadApplicationCoverLetter(id: string, fileName: strin
       error?: string
     } | null
     throw new AccountApiError(
-      payload?.error ?? `Cover letter download failed (${response.status}).`,
+      payload?.error ?? `Letter download failed (${response.status}).`,
       response.status,
     )
   }
