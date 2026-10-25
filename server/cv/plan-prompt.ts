@@ -1,8 +1,9 @@
 import type { ChatMessage } from '../cloudflare'
 import type { CvStory, FitGap, FitMessage } from '../../shared/cv-fit'
-import type { CvMap, CvMapTarget } from '../../shared/cv-map'
+import { allCvProjects, findCvProject, type CvMap, type CvMapTarget } from '../../shared/cv-map'
 import type { CvTargetAudit } from '../../shared/cv-audit'
 import type { CompanyProfile, JdClassification } from '../../shared/jd-classification'
+import { storyProjectName } from '../../shared/projects'
 import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
 
 export const PLAN_SYSTEM_PROMPT = `You plan CV edits from the candidate's own facts. Return one JSON object and nothing else.
@@ -15,6 +16,7 @@ Rules
 - Place evidence in the most specific existing role or project. A project belongs to its role; do not move a fact to a different employer.
 - The CV map is the source of structure. If the candidate names a company, project or product that is not in the CV map or stored stories, or its parent is ambiguous, ask one short question instead of guessing.
 - If the named project is already in the CV map, use its project targets.
+- A stored story labelled with a project is context for that project, not a separate piece of work. Place its facts in that project's targets.
 - You may only choose target block IDs from the candidate list. Those are the whole-block, editable, non-protected targets.
 - Do not choose a target that is not in the list. Do not create, delete or insert paragraphs in this pass.
 - Rewrite the chosen target into one past-tense bullet, no first person, no "I", no bullet glyph. Keep it between the target's min and max characters; do not pad with vague filler. The rendered bullet must fill the same space as the original.
@@ -38,16 +40,16 @@ If no existing target can hold the evidence without changing the layout:
 { "type": "no-fit", "reason": "..." }`
 
 function roleLabel(target: CvMapTarget, map: CvMap) {
-  for (const role of map.roles) {
-    if (role.id === target.roleId) {
-      const project = role.projects.find((entry) => entry.id === target.projectId)
-      if (project) return `${[role.company, role.title].filter(Boolean).join(' / ')} / ${project.name ?? 'Project'}`
-      return [role.company, role.title].filter(Boolean).join(' / ') || 'Role'
+  const role = map.roles.find((entry) => entry.id === target.roleId)
+  if (role) {
+    const project = findCvProject(map, target.projectId)
+    if (project && project.roleId === role.id) {
+      return `${[role.company, role.title].filter(Boolean).join(' / ')} / ${project.name ?? 'Project'}`
     }
+    return [role.company, role.title].filter(Boolean).join(' / ') || 'Role'
   }
 
-  const project = map.orphanProjects.find((entry) => entry.id === target.projectId)
-  return project?.name ?? 'Project'
+  return findCvProject(map, target.projectId)?.name ?? 'Project'
 }
 
 function mapLines(map: CvMap, protectedBlockIds: Set<string>) {
@@ -114,12 +116,15 @@ function gapLines(gaps: FitGap[]) {
     .join('\n')
 }
 
-function storyLines(stories: CvStory[]) {
+function storyLines(stories: CvStory[], map: CvMap) {
+  const projects = allCvProjects(map)
   return stories
     .slice(0, 6)
     .map((story) => {
+      const project = storyProjectName(story, projects)
       const where = [story.title, story.company].filter(Boolean).join(' at ')
-      return `- ${where || 'Experience'}: ${story.userText.slice(0, 500)}`
+      const about = project ? `(about project "${project}")` : '(unlinked experience)'
+      return `- ${where || 'Experience'} ${about}: ${story.userText.slice(0, 500)}`
     })
     .join('\n')
 }
@@ -175,7 +180,7 @@ ${untrusted('cv_map', mapLines(input.map, new Set(input.protectedBlockIds)), 8_0
 
 ${untrusted('targets', candidateLines(input.candidates, input.map) || '(none)', 5_000)}
 
-${untrusted('stored_experience', storyLines(input.stories) || '(none)', 4_000)}
+${untrusted('stored_experience', storyLines(input.stories, input.map) || '(none)', 4_000)}
 
 ${untrusted('conversation', historyLines(input.history) || '(none)', 3_000)}
 

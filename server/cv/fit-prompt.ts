@@ -1,7 +1,8 @@
 import type { ChatMessage } from '../cloudflare'
-import type { CvRole } from '../../shared/cv-classification'
+import type { CvProject, CvRole } from '../../shared/cv-classification'
 import type { CvStory, FitGap, FitMessage } from '../../shared/cv-fit'
 import type { CompanyProfile } from '../../shared/jd-classification'
+import { storyProjectName } from '../../shared/projects'
 import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
 
 /**
@@ -20,6 +21,7 @@ Rules
 - Write one sentence in past tense, no first person, no "I", no bullet glyph.
 - Keep the first bullet within maxChars. If you can, also provide a shorter second bullet using the same facts, so it can fit a tighter line.
 - Do not move a fact from one employer to another. Stored stories are labelled with their role.
+- A stored story labelled with a project is context for that project, not a separate piece of work.
 - Avoid duplicating an existing bullet in this role.
 
 Return this shape:
@@ -39,6 +41,7 @@ export type FitPromptInput = {
   message: string
   history: FitMessage[]
   stories: CvStory[]
+  projects: CvProject[]
   company: CompanyProfile | null
   maxChars: number
 }
@@ -51,12 +54,13 @@ export function fitMessages(input: FitPromptInput): ChatMessage[] {
 
   const stories = input.stories
     .slice(0, 8)
-    .map(
-      (story) =>
-        `- [${story.company ?? 'unknown role'} / ${story.title ?? 'unknown title'}] ${story.userText.slice(0, 500)}${
-          story.bullet ? ` (approved as: ${story.bullet.slice(0, 300)})` : ''
-        }`,
-    )
+    .map((story) => {
+      const project = storyProjectName(story, input.projects)
+      const about = project ? ` (about project "${project}")` : ''
+      return `- [${story.company ?? 'unknown role'} / ${story.title ?? 'unknown title'}]${about} ${story.userText.slice(0, 500)}${
+        story.bullet ? ` (approved as: ${story.bullet.slice(0, 300)})` : ''
+      }`
+    })
     .join('\n')
 
   const history = input.history

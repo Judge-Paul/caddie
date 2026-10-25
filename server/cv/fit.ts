@@ -184,6 +184,7 @@ export async function proposeCvFit(
               message: input.message,
               history: input.history ?? [],
               stories: input.stories ?? [],
+              projects: input.cv.projects,
               company: input.company,
               maxChars,
             })
@@ -194,6 +195,7 @@ export async function proposeCvFit(
                 message: input.message,
                 history: input.history ?? [],
                 stories: input.stories ?? [],
+                projects: input.cv.projects,
                 company: input.company,
                 maxChars,
               }),
