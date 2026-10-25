@@ -6,6 +6,8 @@ import type {
   ApplicationSummary,
   ComposeKind,
   CreateApplicationInput,
+  PublicWork,
+  SavePublicWorkInput,
   SaveSendingInput,
   SendApplicationInput,
   SendingSettings,
@@ -86,6 +88,13 @@ export function uploadBaseCv(file: File) {
 
 export function deleteBaseCv() {
   return request<{ ok: true }>('/api/me/cv', { method: 'DELETE' })
+}
+
+export function savePublicWork(input: SavePublicWorkInput) {
+  return request<{ publicWork: PublicWork }>('/api/me/public-work', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
 }
 
 export function saveSending(input: SaveSendingInput) {

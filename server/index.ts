@@ -5,6 +5,7 @@ import type {
   AccountCvKind,
   AccountUser,
   ComposeKind,
+  SavePublicWorkInput,
   SaveSendingInput,
   SendApplicationInput,
   UpdateApplicationPatch,
@@ -47,6 +48,7 @@ import {
   listStories,
   saveApplicationCv,
   saveBaseCv,
+  savePublicWork,
   saveStory,
   updateApplication,
 } from './account'
@@ -501,6 +503,32 @@ app.get('/api/me', async (c) => {
     getSending(session.user.id),
   ])
   return c.json({ ...me, sending })
+})
+
+app.put('/api/me/public-work', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | Partial<SavePublicWorkInput>
+    | null
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return c.json({ error: 'Add a website or GitHub profile.' }, 400)
+  }
+  const website = body.website ?? null
+  const github = body.github ?? null
+  if (
+    (website !== null && typeof website !== 'string') ||
+    (github !== null && typeof github !== 'string')
+  ) {
+    return c.json({ error: 'Enter the links as text.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json({
+      publicWork: await savePublicWork(session.user.id, { website, github }),
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
 })
 
 app.put('/api/me/sending', async (c) => {

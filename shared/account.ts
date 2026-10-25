@@ -40,6 +40,38 @@ export type EmailDraft = {
   updatedAt: string
 }
 
+export type PublicWorkKind = 'website' | 'github'
+
+export type PublicWorkProject = {
+  name: string
+  description: string | null
+  url: string | null
+  skills: string[]
+}
+
+export type PublicWorkSource = {
+  kind: PublicWorkKind
+  url: string
+  label: string | null
+  headline: string | null
+  summary: string | null
+  skills: string[]
+  projects: PublicWorkProject[]
+  readAt: string | null
+  error: string | null
+}
+
+export type PublicWork = {
+  website: PublicWorkSource | null
+  github: PublicWorkSource | null
+  updatedAt: string | null
+}
+
+export type SavePublicWorkInput = {
+  website: string | null
+  github: string | null
+}
+
 export type SendingSettings = {
   email: string | null
   fromName: string | null
@@ -77,6 +109,7 @@ export type AccountMe = {
   cv: AccountCv | null
   applications: ApplicationSummary[]
   stories: CvStory[]
+  publicWork: PublicWork
   sending: SendingSettings
 }
 

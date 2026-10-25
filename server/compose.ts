@@ -5,6 +5,7 @@ import {
   AccountError,
   getApplication,
   getApplicationFile,
+  getPublicWork,
   listStories,
   updateApplication,
 } from './account'
@@ -263,7 +264,8 @@ export async function composeApplication(
     await listStories(userId),
     jd.requirements.flatMap((item) => [item.label, ...item.match, ...item.items]),
   )
-  const evidence = buildComposeEvidence(cvText, stories, jd)
+  const publicWork = await getPublicWork(userId)
+  const evidence = buildComposeEvidence(cvText, stories, jd, publicWork)
   if (evidence.length === 0) {
     throw new AccountError('No usable evidence was found in the CV for this posting.', 422)
   }

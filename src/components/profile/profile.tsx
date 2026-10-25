@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { PublicWork } from '@/components/profile/public-work'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import {
@@ -428,13 +429,13 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
             The material behind the applications.
           </h1>
           <p className="mt-2 max-w-[58ch] text-[12.5px] leading-[1.55] text-muted-foreground">
-            Your base CV, the experiences Caddie can draw on, and the address
-            applications are sent from.
+            Your base CV, public work, the experiences Caddie can draw on, and
+            the address applications are sent from.
           </p>
         </div>
 
         <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
                 <SectionLabel>Base CV</SectionLabel>
@@ -509,6 +510,8 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 </p>
               ) : null}
             </section>
+
+            <PublicWork me={me} onRefreshMe={onRefreshMe} />
 
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
@@ -618,7 +621,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
             </section>
           </div>
 
-          <aside className="lg:sticky lg:top-20">
+          <aside className="min-w-0 lg:sticky lg:top-20">
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>

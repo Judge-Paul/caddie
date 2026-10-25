@@ -10,6 +10,8 @@ import type {
   ApplicationSummary,
   CoverLetterDraft,
   EmailDraft,
+  PublicWork,
+  SavePublicWorkInput,
   UpdateApplicationPatch,
 } from '../shared/account'
 import type { CvStory } from '../shared/cv-fit'
@@ -18,6 +20,11 @@ import {
   type ClassificationResult,
 } from '../shared/jd-classification'
 import { mongo, type MongoContext } from './mongo'
+import {
+  PublicWorkInputError,
+  normalisePublicLinks,
+  readPublicWork,
+} from './public-work'
 import {
   applicationCvKey,
   baseCvKey,
@@ -54,6 +61,7 @@ type StoredCv = {
 type ProfileDoc = {
   userId: string
   cv: StoredCv | null
+  publicWork?: PublicWork | null
   createdAt: Date
   updatedAt: Date
 }
@@ -221,7 +229,50 @@ export async function getMe(
     cv: profile?.cv ? cvDto(profile.cv) : null,
     applications: applications.map(summary),
     stories,
+    publicWork: profile?.publicWork ?? emptyPublicWork(),
   }
+}
+
+function emptyPublicWork(): PublicWork {
+  return { website: null, github: null, updatedAt: null }
+}
+
+export async function getPublicWork(userId: string): Promise<PublicWork> {
+  const profile = await profileOf(userId)
+  return profile?.publicWork ?? emptyPublicWork()
+}
+
+export async function savePublicWork(
+  userId: string,
+  input: SavePublicWorkInput,
+): Promise<PublicWork> {
+  let links
+  try {
+    links = normalisePublicLinks(input)
+  } catch (error) {
+    if (error instanceof PublicWorkInputError) {
+      throw new AccountError(error.message, 400)
+    }
+    throw error
+  }
+
+  const publicWork = await readPublicWork(links, {
+    browserbaseKey: process.env.BROWSERBASE_API_KEY?.trim() || null,
+    githubToken: process.env.GITHUB_TOKEN?.trim() || null,
+  })
+
+  await requireMongo()
+    .db.collection<ProfileDoc>('profiles')
+    .updateOne(
+      { userId },
+      {
+        $set: { publicWork, updatedAt: new Date() },
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true },
+    )
+
+  return publicWork
 }
 
 export async function saveBaseCv(

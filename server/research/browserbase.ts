@@ -42,7 +42,7 @@ function friendlyMessage(message: string, status: number) {
 
 async function post<T>(
   path: string,
-  config: ServerConfig,
+  config: Pick<ServerConfig, 'browserbaseKey'>,
   body: unknown,
 ): Promise<T> {
   if (!config.browserbaseKey) {
@@ -109,7 +109,7 @@ export type JsonSchema = Record<string, unknown>
 
 /** Ask Browserbase to extract JSON matching the schema. No LLM tokens on our side. */
 export async function fetchJson(
-  config: ServerConfig,
+  config: Pick<ServerConfig, 'browserbaseKey'>,
   url: string,
   schema: JsonSchema,
 ): Promise<Record<string, unknown> | null> {

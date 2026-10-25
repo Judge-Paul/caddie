@@ -1,9 +1,10 @@
+import type { PublicWork } from '../shared/account'
 import type { CvStory } from '../shared/cv-fit'
 import type { JdClassification } from '../shared/jd-classification'
 
 export type ComposeEvidence = {
   id: string
-  source: 'cv' | 'story'
+  source: 'cv' | 'story' | 'profile'
   text: string
   label: string
 }
@@ -62,10 +63,50 @@ function jdTerms(jd: JdClassification) {
   return terms
 }
 
+function publicWorkEvidence(publicWork: PublicWork | null, terms: Set<string>) {
+  if (!publicWork) return []
+  const candidates: { text: string; label: string }[] = []
+
+  for (const source of [publicWork.website, publicWork.github]) {
+    if (!source || source.error) continue
+    const sourceName = source.kind === 'github' ? 'GitHub' : 'Website'
+    if (source.projects.length === 0) {
+      const text = clean([source.headline, source.summary].filter(Boolean).join(' '))
+      if (text.length >= 30) {
+        candidates.push({ text, label: `${sourceName} profile` })
+      }
+      continue
+    }
+    for (const project of source.projects) {
+      const text = clean(
+        [
+          `${project.name}:`,
+          project.description,
+          project.skills.length ? `(${project.skills.join(', ')})` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+      if (text.length < 20) continue
+      candidates.push({ text, label: `${sourceName} project` })
+    }
+  }
+
+  return candidates
+    .map((candidate, index) => ({
+      ...candidate,
+      index,
+      score: scoreLine(candidate.text, terms),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 4)
+}
+
 export function buildComposeEvidence(
   cvText: string,
   stories: CvStory[],
   jd: JdClassification,
+  publicWork: PublicWork | null = null,
 ): ComposeEvidence[] {
   const terms = jdTerms(jd)
   const candidates = cvText
@@ -78,7 +119,7 @@ export function buildComposeEvidence(
       score: scoreLine(text, terms),
     }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, 24)
+    .slice(0, 20)
 
   const seen = new Set<string>()
   const evidence: ComposeEvidence[] = []
@@ -95,7 +136,19 @@ export function buildComposeEvidence(
     })
   }
 
-  for (const story of stories.slice(0, 10)) {
+  for (const [index, candidate] of publicWorkEvidence(publicWork, terms).entries()) {
+    const key = candidate.text.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    evidence.push({
+      id: `profile:${index + 1}`,
+      source: 'profile',
+      text: candidate.text,
+      label: candidate.label,
+    })
+  }
+
+  for (const story of stories.slice(0, 8)) {
     const text = clean(story.bullet || story.userText)
     if (!text || text.length < 30) continue
     const key = text.toLowerCase()

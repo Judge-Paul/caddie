@@ -37,7 +37,9 @@ string). Generate `BETTER_AUTH_SECRET` and `APP_ENCRYPTION_KEY` with
 `openssl rand -base64 32`. Create a private R2 bucket and an R2 API token with
 Object Read & Write; put its account ID, access key, secret and bucket in
 `.env.local`. Legacy GridFS files remain readable; move them with
-`npm run migrate:r2` once R2 is configured.
+`npm run migrate:r2` once R2 is configured. Website scraping needs
+`BROWSERBASE_API_KEY`; GitHub reading uses the public API, and an optional
+`GITHUB_TOKEN` raises its rate limit.
 
 Google sign-in is the only auth path. In Google Cloud Console → APIs & Services
 → Credentials, add this Authorized redirect URI:
@@ -100,7 +102,9 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 - **Your CV** — upload a DOCX or PDF. The file and its rendered PDF live as
   private objects in your Cloudflare R2 bucket, with their keys in your account.
   A DOCX keeps its fonts and can be tailored; a PDF is read-only. Replacing the
-  base CV does not rewrite existing application snapshots.
+  base CV does not rewrite existing application snapshots. Add your website and
+  GitHub under **Public work**; Caddie reads public pages for project evidence
+  used when drafting cover letters and emails.
 - **Matching** — `src/lib/match.ts` scores the classified must-haves against the
   CV text. Single-word terms use the CV vocabulary, multi-word terms must appear
   as a phrase, and either-or groups are covered by any alternative. Missing
@@ -140,6 +144,10 @@ application, Resend receives the from and to addresses, the email text and, when
 attached, the CV PDF read from R2. The Resend key is encrypted at rest with
 `APP_ENCRYPTION_KEY`; only its last four characters are returned to the browser.
 Matching stays in the browser.
+
+Public work URLs are sent to Browserbase (website) or GitHub (profile) when you
+press **Read links**; Caddie stores the extracted summary, skills and projects
+in your profile. Neither receives your CV.
 
 Built with Vite, React, Tailwind CSS v4, shadcn/ui, Better Auth, Bun/Hono,
 MongoDB, Resend and Cloudflare Workers AI. Design and engineering conventions
