@@ -1,0 +1,32 @@
+services:
+  web:
+    build:
+      context: .
+    image: caddie:latest
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+    ports:
+      - "8787:8787"
+    volumes:
+      - caddie-cache:/app/.cache
+    restart: unless-stopped
+
+  # Telegram uses long polling. Run exactly one bot replica.
+  bot:
+    build:
+      context: .
+    image: caddie:latest
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: ["bun", "server/telegram/index.ts"]
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  caddie-cache:

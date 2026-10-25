@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import { serveStatic } from 'hono/bun'
 
 import type {
   AccountCvKind,
@@ -948,6 +949,14 @@ app.put('/api/applications/:id/cv', async (c) => {
     return cvFailure(c, error)
   }
 })
+
+if (process.env.NODE_ENV === 'production') {
+  app.use('*', serveStatic({ root: './dist' }))
+  app.get('*', async (c, next) => {
+    if (c.req.path.startsWith('/api/')) return next()
+    return serveStatic({ path: './dist/index.html' })(c, next)
+  })
+}
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404))
 

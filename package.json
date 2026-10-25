@@ -13,7 +13,9 @@
     "api": "bun server/index.ts",
     "eval": "bun eval/run.ts",
     "migrate:r2": "bun server/migrate-r2.ts",
-    "bot": "bun server/telegram/index.ts"
+    "bot": "bun server/telegram/index.ts",
+    "start": "bun server/index.ts",
+    "start:bot": "bun server/telegram/index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",

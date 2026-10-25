@@ -182,5 +182,6 @@ stores the linked chat ID, conversation state and application progress in your
 Caddie account. It never asks for or stores a Resend key in Telegram.
 
 Built with Vite, React, Tailwind CSS v4, shadcn/ui, Better Auth, Bun/Hono,
-MongoDB, Resend and Cloudflare Workers AI. Design and engineering conventions
-are in [AGENTS.md](AGENTS.md).
+MongoDB, Resend and Cloudflare Workers AI. Deployment steps and the production
+checklist are in [DEPLOYMENT.md](DEPLOYMENT.md). Design and engineering
+conventions are in [AGENTS.md](AGENTS.md).
