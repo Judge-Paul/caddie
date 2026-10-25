@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
+import { CaddieWordmark } from '@/components/caddie-wordmark'
 import { Button } from '@/components/ui/button'
 import { signIn } from '@/lib/auth-client'
 import { AlertCircle, LoaderCircle } from 'lucide-react'
@@ -50,16 +50,12 @@ export function AuthScreen() {
   return (
     <div className="flex min-h-dvh flex-col bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)]">
       <header className="flex h-14 shrink-0 items-center gap-3 px-4 sm:px-6">
-        <CaddieMark className="size-[26px]" />
         <CaddieWordmark />
       </header>
 
       <main className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-[430px] rounded-xl border border-border bg-card p-7 shadow-[0_1px_2px_rgba(13,21,38,0.04),0_24px_60px_-40px_rgba(13,21,38,0.35)]">
-          <div className="flex size-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
-            <CaddieMark className="size-6" />
-          </div>
-          <h1 className="mt-5 text-[22px] leading-[1.15] font-semibold tracking-[-0.03em] text-ink">
+          <h1 className="text-[22px] leading-[1.15] font-semibold tracking-[-0.03em] text-ink">
             Your CV, ready for the role.
           </h1>
           <p className="mt-2 max-w-[38ch] text-[12.5px] leading-[1.55] text-muted-foreground">

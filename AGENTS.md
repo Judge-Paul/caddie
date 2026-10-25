@@ -65,12 +65,13 @@ CV PDF.
 
 ## Brand
 
-**Caddie** — the person who reads the course and carries the bag. The tone is
-calm, specific and useful: no hype, no exclamation marks, no emoji in product UI.
-Copy is sentence case. Say "your CV", never "your resume".
+**Caddie** is the job-application workbench. The tone is calm, specific and
+useful: no hype, no exclamation marks, no emoji in product UI. Copy is sentence
+case. Say "your CV", never "your resume".
 
-The mark is a pin flag in a blue squircle (`src/components/caddie-mark.tsx`,
-`public/favicon.svg`). The flag is the role, the caddie gets you to it.
+The wordmark is the brand (`src/components/caddie-wordmark.tsx`). Do not add a
+decorative app icon beside it. The favicon is a simple C in a blue squircle
+(`public/favicon.svg`).
 
 ### Colour
 

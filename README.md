@@ -97,63 +97,63 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 
 ## What's here
 
-- **Applications table** — every role in one ledger: stage, package state, last
+- **Applications table**: every role in one ledger: stage, package state, last
   updated and the next action. Search by role or company and filter by stage.
   Completed and sent applications stay visible and downloadable.
-- **Application workbench** — open a role to see the fit and the application
+- **Application workbench**: open a role to see the fit and the application
   package before the raw CV. Tabs hold the Overview, CV, Cover letter and Email;
   the posting stays alongside with its coverage marks and company research.
-- **Profile** — the base CV, the experience library, and the sending identity.
+- **Profile**: the base CV, the experience library, and the sending identity.
   Experiences are your own words about work you actually did; they ground CV
   bullets, cover letters and email drafts. The sending identity is a saved
   connection, not an empty form: once added, Profile shows the from address,
   verified domain and key suffix, with Edit and Remove actions.
-- **Cover letter and email** — Caddie first picks the story: a direct project
+- **Cover letter and email**: Caddie first picks the story: a direct project
   match, a similar problem, a craft angle or an honest transferable angle, with
   one hero proof and one supporting proof. It then writes from those selected
   facts rather than reciting the CV. The draft is editable, saved to the
   application, and never sent without a confirmation. An application address
   found in the posting is prefilled into the email recipient and marked "From
   posting."
-- **Send from your own address** — connect Resend in Profile. Sending attaches
+- **Send from your own address**: connect Resend in Profile. Sending attaches
   the application's PDF, records the recipient and time, and the web app never
   auto-sends. In the web app the cover letter stays a separate draft and is not
   attached automatically; Telegram auto-apply attaches it when it exists.
-- **Complete and lock** — mark an application complete without sending, or send
+- **Complete and lock**: mark an application complete without sending, or send
   it. Either action locks the CV, cover letter, posting and email against further
   edits, while the package stays readable and downloadable.
-- **Downloads** — the tailored CV is downloadable as its application PDF, and
+- **Downloads**: the tailored CV is downloadable as its application PDF, and
   the cover letter is rendered server-side to a PDF. Both downloads work after
   the application is locked.
-- **Your CV** — upload a DOCX or PDF. The file and its rendered PDF live as
+- **Your CV**: upload a DOCX or PDF. The file and its rendered PDF live as
   private objects in your Cloudflare R2 bucket, with their keys in your account.
   A DOCX keeps its fonts and can be tailored; a PDF is read-only. Replacing the
   base CV does not rewrite existing application snapshots. Add your website and
   GitHub under **Public work**; Caddie reads public pages for project evidence
   used when drafting cover letters and emails.
-- **Matching** — `src/lib/match.ts` scores the classified must-haves against the
+- **Matching**: `src/lib/match.ts` scores the classified must-haves against the
   CV text. Single-word terms use the CV vocabulary, multi-word terms must appear
   as a phrase, and either-or groups are covered by any alternative. Missing
   must-haves turn red; nice-to-haves and implied signals turn amber and never
   change the score. Matching is instant and runs in the browser.
-- **CV planner** — open it from **Improve CV** or a gap chip. Caddie shows the
+- **CV planner**: open it from **Improve CV** or a gap chip. Caddie shows the
   missing skills and one text box: tell it what you have actually done, mentioning
   companies or projects. It maps roles, projects and project bullets, marks the
   blocks that are protecting must-haves, and proposes up to three line-neutral
   replacements. A project can be nested under the role where it was built. If a
   project or product is unknown, it asks instead of guessing. Nothing is applied
   until you approve the plan.
-- **CV map** — open **Structure** in the CV tab to see what Caddie read: roles,
+- **CV map**: open **Structure** in the CV tab to see what Caddie read: roles,
   projects, project bullets and whether each block is protected, worth showing,
   generic or safe to swap.
-- **DOCX under the hood** — `/api/cv/edit` replaces anchored text while
+- **DOCX under the hood**: `/api/cv/edit` replaces anchored text while
   preserving the original run formatting (font, size, weight), then re-renders.
   `/api/cv/classify` extracts contact, summary, roles, projects, project bullets,
   education and skills with an anchor back to every editable field. The default
   read is structural: rules parse the DOCX blocks and Clef-flash labels only the
   ambiguous ones, so it takes about a second and generates no text. `?mode=deep`
   is a manual Gemma read for unusual layouts.
-- **Company research** — Browserbase searches and reads public pages, then
+- **Company research**: Browserbase searches and reads public pages, then
   extracts a profile (summary, sectors, founders, stage, funding, links,
   signals) with its JSON extraction. It never sees the CV and uses no Gemma
   tokens.

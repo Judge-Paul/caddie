@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { serveStatic } from 'hono/bun'
@@ -951,6 +953,20 @@ app.put('/api/applications/:id/cv', async (c) => {
 })
 
 if (process.env.NODE_ENV === 'production') {
+  app.get('/', async (c) => {
+    const html = await readFile('./dist/index.html', 'utf8')
+    const appUrl =
+      process.env.BETTER_AUTH_URL?.trim().replace(/\/$/, '') ||
+      new URL(c.req.url).origin
+    return c.html(
+      html
+        .replaceAll('content="/og.png"', `content="${appUrl}/og.png"`)
+        .replace(
+          '</head>',
+          `<meta property="og:url" content="${appUrl}/" /></head>`,
+        ),
+    )
+  })
   app.use('*', serveStatic({ root: './dist' }))
   app.get('*', async (c, next) => {
     if (c.req.path.startsWith('/api/')) return next()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { AuthScreen } from '@/components/auth/auth-screen'
-import { CaddieMark, CaddieWordmark } from '@/components/caddie-mark'
+import { CaddieWordmark } from '@/components/caddie-wordmark'
 import { Dashboard } from '@/components/dashboard/dashboard'
 import { Profile } from '@/components/profile/profile'
 import { Workspace } from '@/components/workspace/workspace'
@@ -30,7 +30,7 @@ import { AlertCircle, LoaderCircle, LogOut } from 'lucide-react'
 function Splash({ label = 'Opening Caddie' }: { label?: string }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)]">
-      <CaddieMark className="size-10" />
+      <CaddieWordmark />
       <span className="mt-4 flex items-center gap-2 text-[12px] text-muted-foreground">
         <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
         {label}
@@ -282,8 +282,7 @@ function AccountApp({ user }: { user: AccountUser }) {
             className="flex shrink-0 items-center gap-2 rounded-md outline-none max-sm:size-11 max-sm:justify-center focus-visible:ring-3 focus-visible:ring-ring/50"
             aria-label="Caddie applications"
           >
-            <CaddieMark className="size-[26px]" />
-            <CaddieWordmark className="hidden sm:inline" />
+            <CaddieWordmark />
           </button>
 
           <span className="hidden h-4 w-px bg-border sm:block" />

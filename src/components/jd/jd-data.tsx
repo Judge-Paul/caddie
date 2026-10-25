@@ -251,7 +251,7 @@ function DataEmpty({ onRun }: { onRun: () => void }) {
       </Button>
       <p className="mt-2 max-w-[34ch] text-[10.5px] leading-[1.4] text-muted-foreground">
         The posting goes to Cloudflare; a short company summary goes to
-        Browserbase for research. Usually takes 20–40 seconds.
+        Browserbase for research. Usually takes 20 to 40 seconds.
       </p>
     </div>
   )

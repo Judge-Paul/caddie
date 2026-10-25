@@ -682,7 +682,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                         <p className="mt-0.5 text-[10.5px] text-muted-foreground">
                           {sending.verified
                             ? `Verified on ${sending.domain}`
-                            : 'Saved — check the domain before sending'}
+                            : 'Saved. Check the domain before sending'}
                         </p>
                       </div>
                     </div>

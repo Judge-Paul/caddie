@@ -1,4 +1,4 @@
-export const sampleJd = `Senior Frontend Engineer — Nebula Analytics
+export const sampleJd = `Senior Frontend Engineer at Nebula Analytics
 Remote (EU) · Full-time
 
 About the role
