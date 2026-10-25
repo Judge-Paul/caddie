@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 import { RenderError } from './cv/render'
+import { childEnv } from './cv/child-env'
+import { withRenderSlot } from './cv/render-queue'
 
 const execFileAsync = promisify(execFile)
 const SOFFICE = process.env.SOFFICE_BIN?.trim() || 'soffice'
@@ -50,22 +52,29 @@ p { margin: 0 0 1em; }
     )
 
     try {
-      await execFileAsync(
-        SOFFICE,
-        [
-          '--headless',
-          '--norestore',
-          '--nolockcheck',
-          '--nodefault',
-          '--nofirststartwizard',
-          `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
-          '--convert-to',
-          'pdf:writer_web_pdf_Export',
-          '--outdir',
-          outDir,
-          inputPath,
-        ],
-        { timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 },
+      await withRenderSlot(() =>
+        execFileAsync(
+          SOFFICE,
+          [
+            '--headless',
+            '--norestore',
+            '--nolockcheck',
+            '--nodefault',
+            '--nofirststartwizard',
+            `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+            '--convert-to',
+            'pdf:writer_web_pdf_Export',
+            '--outdir',
+            outDir,
+            inputPath,
+          ],
+          {
+            timeout: TIMEOUT_MS,
+            killSignal: 'SIGKILL',
+            maxBuffer: 1024 * 1024,
+            env: childEnv(),
+          },
+        ),
       )
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {

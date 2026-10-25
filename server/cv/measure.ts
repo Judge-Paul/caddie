@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { childEnv } from './child-env'
 
 const execFileAsync = promisify(execFile)
 const TIMEOUT_MS = 15_000
@@ -42,6 +43,7 @@ export async function measurePdf(pdf: Uint8Array): Promise<PdfMeasurement> {
           timeout: TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
           encoding: 'utf8',
+          env: childEnv(),
         })
       ).stdout
 
@@ -50,6 +52,7 @@ export async function measurePdf(pdf: Uint8Array): Promise<PdfMeasurement> {
           timeout: TIMEOUT_MS,
           maxBuffer: 10 * 1024 * 1024,
           encoding: 'utf8',
+          env: childEnv(),
         })
       ).stdout
     } catch (error) {

@@ -6,12 +6,14 @@ import { Dashboard } from '@/components/dashboard/dashboard'
 import { Profile } from '@/components/profile/profile'
 import { Workspace } from '@/components/workspace/workspace'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   createApplication,
   deleteApplication,
   getApplication,
   getMe,
   linkTelegram,
+  previewTelegramLink,
   saveApplicationCv,
   saveStory,
   updateApplication,
@@ -86,6 +88,11 @@ function AccountApp({ user }: { user: AccountUser }) {
       : 'applications',
   )
   const [telegramNotice, setTelegramNotice] = useState('')
+  const [pendingTelegram, setPendingTelegram] = useState<{
+    token: string
+    label: string
+  } | null>(null)
+  const [telegramBusy, setTelegramBusy] = useState(false)
   const mountedRef = useRef(true)
   const telegramLinkHandled = useRef(false)
 
@@ -139,20 +146,44 @@ function AccountApp({ user }: { user: AccountUser }) {
       '',
       `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
     )
-    void linkTelegram(token)
-      .then(async () => {
-        setTelegramNotice('Telegram connected.')
-        setView('profile')
-        await loadMe()
+    void previewTelegramLink(token)
+      .then(({ preview }) => {
+        setPendingTelegram({
+          token,
+          label: preview.username
+            ? `@${preview.username}`
+            : preview.firstName || 'this Telegram chat',
+        })
       })
       .catch((caught) => {
         setTelegramNotice(
           caught instanceof Error
             ? caught.message
-            : 'That Telegram link could not be connected.',
+            : 'That Telegram link could not be checked.',
         )
       })
-  }, [loadMe, me])
+  }, [me])
+
+  async function confirmTelegramConnect() {
+    if (!pendingTelegram) return
+    setTelegramBusy(true)
+    try {
+      await linkTelegram(pendingTelegram.token)
+      setPendingTelegram(null)
+      setTelegramNotice('Telegram connected.')
+      setView('profile')
+      await loadMe()
+    } catch (caught) {
+      setTelegramNotice(
+        caught instanceof Error
+          ? caught.message
+          : 'That Telegram link could not be connected.',
+      )
+      setPendingTelegram(null)
+    } finally {
+      setTelegramBusy(false)
+    }
+  }
 
   function patchMeApplication(updated: ApplicationDetail) {
     setMe((current) =>
@@ -335,6 +366,25 @@ function AccountApp({ user }: { user: AccountUser }) {
           </Button>
         </div>
       </header>
+
+      <ConfirmDialog
+        open={Boolean(pendingTelegram)}
+        title="Connect Telegram?"
+        description={`Connect ${pendingTelegram?.label ?? 'this Telegram chat'} to this Caddie account?${
+          me.telegram.connected
+            ? ' This will replace your current Telegram connection.'
+            : ''
+        }`}
+        confirmLabel="Connect Telegram"
+        busy={telegramBusy}
+        onConfirm={() => void confirmTelegramConnect()}
+        onClose={() => {
+          if (!telegramBusy) setPendingTelegram(null)
+        }}
+      >
+        Only connect a Telegram chat you control. That chat will be able to
+        prepare and send applications as this account.
+      </ConfirmDialog>
 
       {telegramNotice ? (
         <div className="fixed inset-x-4 bottom-4 z-30 mx-auto flex max-w-[520px] items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-[0_18px_50px_-24px_rgba(13,21,38,0.4)] sm:left-auto sm:right-6 sm:mx-0">

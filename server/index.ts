@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { Context } from 'hono'
 import { serveStatic } from 'hono/bun'
 
@@ -69,6 +70,7 @@ import {
 import {
   TelegramLinkError,
   linkTelegram,
+  previewTelegramLink,
   telegramStatus,
   unlinkTelegram,
   updateTelegramIdentity,
@@ -89,6 +91,14 @@ const MAX_JD_CHARS = 40_000
 const MAX_PDF_BYTES = MAX_CV_BYTES
 
 const app = new Hono<AppEnv>()
+
+app.use(
+  '/api/*',
+  bodyLimit({
+    maxSize: 64 * 1024 * 1024,
+    onError: (c) => c.json({ error: 'That request is too large.' }, 413),
+  }),
+)
 
 app.get('/api/health', (c) =>
   c.json({
@@ -292,6 +302,7 @@ function cvFailure(c: Context, error: unknown) {
 app.post('/api/cv/convert', async (c) => {
   try {
     const docx = await readDocxBytes(c)
+    await openDocx(docx)
     const pdf = await renderDocxToPdf(docx)
     const bytes = new Uint8Array(pdf.byteLength)
     bytes.set(pdf)
@@ -522,6 +533,18 @@ app.get('/api/preview/:token', async (c) => {
       'Content-Disposition': 'inline; filename="cover-letter.pdf"',
       'Cache-Control': 'private, no-store',
     })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/telegram/link/preview', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { token?: unknown } | null
+  if (typeof body?.token !== 'string' || !body.token.trim()) {
+    return c.json({ error: 'That Telegram link is missing.' }, 400)
+  }
+  try {
+    return c.json({ preview: await previewTelegramLink(body.token.trim()) })
   } catch (error) {
     return cvFailure(c, error)
   }

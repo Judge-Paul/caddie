@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
+import { childEnv } from './child-env'
+import { withRenderSlot } from './render-queue'
 
 const execFileAsync = promisify(execFile)
 const SOFFICE = process.env.SOFFICE_BIN?.trim() || 'soffice'
@@ -36,22 +38,29 @@ export async function renderDocxToPdf(input: Uint8Array): Promise<Uint8Array> {
     await writeFile(inputPath, input)
 
     try {
-      await execFileAsync(
-        SOFFICE,
-        [
-          '--headless',
-          '--norestore',
-          '--nolockcheck',
-          '--nodefault',
-          '--nofirststartwizard',
-          `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
-          '--convert-to',
-          'pdf:writer_pdf_Export',
-          '--outdir',
-          outDir,
-          inputPath,
-        ],
-        { timeout: TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 },
+      await withRenderSlot(() =>
+        execFileAsync(
+          SOFFICE,
+          [
+            '--headless',
+            '--norestore',
+            '--nolockcheck',
+            '--nodefault',
+            '--nofirststartwizard',
+            `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+            '--convert-to',
+            'pdf:writer_pdf_Export',
+            '--outdir',
+            outDir,
+            inputPath,
+          ],
+          {
+            timeout: TIMEOUT_MS,
+            killSignal: 'SIGKILL',
+            maxBuffer: 1024 * 1024,
+            env: childEnv(),
+          },
+        ),
       )
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {

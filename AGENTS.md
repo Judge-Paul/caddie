@@ -190,10 +190,13 @@ entrance animations on load, no bouncing.
   `BETTER_AUTH_API_KEY` is for Infrastructure only and is unused here.
 - No anonymous data path: the sample CV and sample JD are not part of the
   account workflow.
-- **Telegram** is a first-party client. `/start` sends a signed, short-lived link
-  to the site; after Google sign-in the chat is linked to the account
-  (`telegramLinks`). The bot only accepts work for a linked chat. Profile shows
-  the connection and auto-apply setting and can disconnect it. Telegram is a
+- **Telegram** is a first-party client. `/start` creates a one-time, server-stored
+  pairing request and sends a signed, short-lived link to the site. The web app
+  previews the chat and asks the signed-in user to confirm before consuming the
+  token; it never auto-redeems a URL. The bot accepts private chats only and
+  requires a linked chat. Approve, email and auto-apply intents are state-gated
+  or explicit commands, never inferred from job text. Profile shows the
+  connection and auto-apply setting and can disconnect it. Telegram is a
   separate Bun process (`npm run bot`) using long polling and the same Mongo
   collections.
 
@@ -356,7 +359,13 @@ DOCX is the editable source; the PDF is a rendering of it.
 - `server/cv/render.ts` runs LibreOffice headless with a per-job profile. It is
   not Word: line breaks can differ, and fonts not installed on the server are
   substituted. Carlito/Caladea/Liberation are the sensible base; a DOCX that
-  embeds its fonts may render closer.
+  embeds its fonts may render closer. Renderer children get a minimal
+  environment, never the application secret set, and renders share a one-slot
+  queue per process. API bodies are capped at 64 MB.
+- Every DOCX path runs `openDocx` before LibreOffice, including `/api/cv/convert`.
+  It rejects macros, ActiveX, embedded objects, altChunk and external
+  relationships other than hyperlinks, and checks compressed entries for
+  excessive inflate before reading document XML.
 - Edits are `{ blockId, find?, text }`. `find` replaces a substring (a role
   title inside a line that also holds dates); omitting it replaces the whole
   block. The first affected run keeps its `w:rPr`, so the same font, size and

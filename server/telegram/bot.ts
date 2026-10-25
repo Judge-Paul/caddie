@@ -90,8 +90,14 @@ function reviewKeyboard(
   return keyboard
 }
 
-async function connectKeyboard(chatId: string) {
-  return new InlineKeyboard().url('Connect Caddie', telegramLinkUrl(chatId))
+async function connectKeyboard(
+  chatId: string,
+  profile: { username?: string | null; firstName?: string | null },
+) {
+  return new InlineKeyboard().url(
+    'Connect Caddie',
+    await telegramLinkUrl(chatId, profile),
+  )
 }
 
 async function requireLink(ctx: Context) {
@@ -101,7 +107,12 @@ async function requireLink(ctx: Context) {
   if (!link) {
     await ctx.reply(
       'Connect this Telegram chat to your Caddie account first. Tap the button below, sign in, then come back here.',
-      { reply_markup: await connectKeyboard(String(chatId)) },
+      {
+        reply_markup: await connectKeyboard(String(chatId), {
+          username: ctx.from?.username ?? null,
+          firstName: ctx.from?.first_name ?? null,
+        }),
+      },
     )
     return null
   }
@@ -430,6 +441,20 @@ async function handleHelp(ctx: Context) {
 export function createTelegramBot(token: string) {
   const bot = new Bot(token)
 
+  bot.use(async (ctx, next) => {
+    if (ctx.chat && ctx.chat.type !== 'private') {
+      if (ctx.chat.type !== 'channel') {
+        await ctx.reply('Use Caddie in a private chat so applications stay scoped to your account.')
+      }
+      return
+    }
+    if (ctx.from && ctx.chat && ctx.from.id !== ctx.chat.id) {
+      await ctx.reply('Use Caddie in a private chat so applications stay scoped to your account.')
+      return
+    }
+    await next()
+  })
+
   bot.command('start', async (ctx) => {
     const link = await requireLink(ctx)
     if (!link) return
@@ -504,8 +529,18 @@ export function createTelegramBot(token: string) {
     const text = ctx.message.text.trim()
     if (!text) return
     if (session?.state === 'awaiting_email') {
-      const email = text.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/i)?.[0]
-      if (email && session.activeApplicationId) {
+      const value = text.trim()
+      const email = value.match(
+        /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/i,
+      )?.[0]
+      const address = value
+        .replace(/^(?:use|send to|send it to|email|my email is)\s+/i, '')
+        .trim()
+      if (
+        email &&
+        address.toLowerCase() === email.toLowerCase() &&
+        session.activeApplicationId
+      ) {
         await saveTelegramSession(chatId, link.userId, { pendingEmail: email })
         await applyPrepared(ctx, link, session.activeApplicationId, email, chatId)
         return
@@ -515,7 +550,9 @@ export function createTelegramBot(token: string) {
         await ctx.reply('Cancelled.')
         return
       }
-      await ctx.reply('Send the email address to use, or say cancel.')
+      await ctx.reply(
+        'Send only the email address to use, or say cancel.',
+      )
       return
     }
 
@@ -538,8 +575,11 @@ export function createTelegramBot(token: string) {
     }
 
     if (intent.type === 'approve') {
-      if (!session?.activeApplicationId) {
-        await ctx.reply('There is no prepared application to apply yet.')
+      if (
+        !session?.activeApplicationId ||
+        session.state !== 'awaiting_approval'
+      ) {
+        await ctx.reply('There is no prepared application waiting for approval.')
         return
       }
       await applyPrepared(ctx, link, session.activeApplicationId, undefined, chatId)
@@ -586,15 +626,6 @@ export function createTelegramBot(token: string) {
     if (intent.type === 'auto_off') {
       await setTelegramAuto(chatId, false)
       await ctx.reply('Auto-apply is off. I will show you each application before sending.')
-      return
-    }
-
-    if (intent.type === 'provide_email') {
-      if (session?.activeApplicationId) {
-        await applyPrepared(ctx, link, session.activeApplicationId, intent.email, chatId)
-      } else {
-        await ctx.reply('There is no application waiting for an email address.')
-      }
       return
     }
 

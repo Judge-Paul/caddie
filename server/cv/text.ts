@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { AccountError } from '../account'
+import { childEnv } from './child-env'
 
 const execFileAsync = promisify(execFile)
 const TIMEOUT_MS = 20_000
@@ -22,6 +23,7 @@ export async function extractPdfText(pdf: Uint8Array) {
         timeout: TIMEOUT_MS,
         maxBuffer: 12 * 1024 * 1024,
         encoding: 'utf8',
+        env: childEnv(),
       },
     )
     return stdout

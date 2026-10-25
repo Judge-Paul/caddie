@@ -91,6 +91,15 @@ export function deleteBaseCv() {
   return request<{ ok: true }>('/api/me/cv', { method: 'DELETE' })
 }
 
+export function previewTelegramLink(token: string) {
+  return request<{
+    preview: { username: string | null; firstName: string | null; expiresAt: string }
+  }>('/api/telegram/link/preview', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 export function linkTelegram(token: string) {
   return request<{ telegram: TelegramStatus }>('/api/telegram/link', {
     method: 'POST',

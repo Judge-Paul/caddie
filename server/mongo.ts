@@ -29,6 +29,12 @@ async function ensureIndexes(db: Db) {
     await db
       .collection('telegramSessions')
       .createIndex({ chatId: 1 }, { unique: true })
+    await db
+      .collection('telegramPairingRequests')
+      .createIndex({ nonce: 1 }, { unique: true })
+    await db
+      .collection('telegramPairingRequests')
+      .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
   } catch (error) {
     console.error('[mongo] index setup failed', error)
   }

@@ -13,6 +13,16 @@ type LinkPayload = {
   nonce: string
 }
 
+type PairingDoc = {
+  nonce: string
+  chatId: string
+  username: string | null
+  firstName: string | null
+  createdAt: Date
+  expiresAt: Date
+  usedAt: Date | null
+}
+
 export type TelegramLinkDoc = {
   chatId: string
   userId: string
@@ -48,18 +58,44 @@ function sign(value: string) {
   return createHmac('sha256', secret()).update(value).digest('base64url')
 }
 
-export function createTelegramLink(chatId: string) {
+function pairingStore() {
+  const db = mongo()?.db
+  if (!db) {
+    throw new TelegramLinkError(
+      'Telegram linking needs MONGODB_URI in .env.local.',
+      503,
+    )
+  }
+  return db.collection<PairingDoc>('telegramPairingRequests')
+}
+
+export async function createTelegramLink(
+  chatId: string,
+  profile: { username?: string | null; firstName?: string | null } = {},
+) {
+  const nonce = randomBytes(16).toString('base64url')
+  const expiresAt = new Date(Date.now() + LINK_TTL_MS)
+  await pairingStore().insertOne({
+    nonce,
+    chatId: String(chatId),
+    username: profile.username ?? null,
+    firstName: profile.firstName ?? null,
+    createdAt: new Date(),
+    expiresAt,
+    usedAt: null,
+  })
+
   const payload: LinkPayload = {
     v: LINK_VERSION,
     chat: String(chatId),
-    exp: Date.now() + LINK_TTL_MS,
-    nonce: randomBytes(12).toString('base64url'),
+    exp: expiresAt.getTime(),
+    nonce,
   }
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${encoded}.${sign(encoded)}`
 }
 
-function verifyTelegramLink(token: string): LinkPayload {
+function decodeTelegramLink(token: string): LinkPayload {
   const [encoded, signature] = token.split('.')
   if (!encoded || !signature) {
     throw new TelegramLinkError('That Telegram link is invalid.', 400)
@@ -76,13 +112,68 @@ function verifyTelegramLink(token: string): LinkPayload {
   } catch {
     throw new TelegramLinkError('That Telegram link is invalid.', 400)
   }
-  if (payload.v !== LINK_VERSION || !payload.chat || !payload.exp) {
+  if (
+    payload.v !== LINK_VERSION ||
+    !payload.chat ||
+    !payload.exp ||
+    !payload.nonce
+  ) {
     throw new TelegramLinkError('That Telegram link is invalid.', 400)
   }
   if (payload.exp < Date.now()) {
-    throw new TelegramLinkError('That Telegram link has expired. Send /start again.', 410)
+    throw new TelegramLinkError(
+      'That Telegram link has expired. Send /start again.',
+      410,
+    )
   }
   return payload
+}
+
+async function pairingForToken(token: string) {
+  const payload = decodeTelegramLink(token)
+  const pairing = await pairingStore().findOne({
+    nonce: payload.nonce,
+    chatId: payload.chat,
+    usedAt: null,
+    expiresAt: { $gt: new Date() },
+  })
+  if (!pairing) {
+    throw new TelegramLinkError(
+      'That Telegram link has expired or was already used. Send /start again.',
+      410,
+    )
+  }
+  return pairing
+}
+
+export async function previewTelegramLink(token: string) {
+  const pairing = await pairingForToken(token)
+  return {
+    username: pairing.username,
+    firstName: pairing.firstName,
+    expiresAt: pairing.expiresAt.toISOString(),
+  }
+}
+
+async function consumeTelegramLink(token: string) {
+  const pairing = await pairingForToken(token)
+  const claimed = await pairingStore().findOneAndUpdate(
+    {
+      nonce: pairing.nonce,
+      chatId: pairing.chatId,
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    },
+    { $set: { usedAt: new Date() } },
+    { returnDocument: 'before' },
+  )
+  if (!claimed) {
+    throw new TelegramLinkError(
+      'That Telegram link has expired or was already used. Send /start again.',
+      410,
+    )
+  }
+  return claimed
 }
 
 function store() {
@@ -123,14 +214,10 @@ export async function telegramLinkForChat(chatId: string) {
   return store().findOne({ chatId: String(chatId) })
 }
 
-export async function linkTelegram(
-  userId: string,
-  token: string,
-  profile: { username?: string | null; firstName?: string | null } = {},
-) {
-  const payload = verifyTelegramLink(token)
+export async function linkTelegram(userId: string, token: string) {
+  const pairing = await pairingForToken(token)
   const collection = store()
-  const existingChat = await collection.findOne({ chatId: payload.chat })
+  const existingChat = await collection.findOne({ chatId: pairing.chatId })
   if (existingChat && existingChat.userId !== userId) {
     throw new TelegramLinkError(
       'That Telegram account is already connected to another Caddie account.',
@@ -138,15 +225,16 @@ export async function linkTelegram(
     )
   }
 
+  await consumeTelegramLink(token)
   const now = new Date()
-  await collection.deleteMany({ userId, chatId: { $ne: payload.chat } })
+  await collection.deleteMany({ userId, chatId: { $ne: pairing.chatId } })
   await collection.updateOne(
-    { chatId: payload.chat },
+    { chatId: pairing.chatId },
     {
       $set: {
         userId,
-        username: profile.username ?? existingChat?.username ?? null,
-        firstName: profile.firstName ?? existingChat?.firstName ?? null,
+        username: pairing.username ?? existingChat?.username ?? null,
+        firstName: pairing.firstName ?? existingChat?.firstName ?? null,
         autoApply: existingChat?.autoApply ?? false,
         updatedAt: now,
       },
@@ -156,7 +244,7 @@ export async function linkTelegram(
   )
 
   return {
-    chatId: payload.chat,
+    chatId: pairing.chatId,
     telegram: await telegramStatus(userId),
   }
 }
@@ -177,10 +265,13 @@ export async function setTelegramAuto(chatId: string, autoApply: boolean) {
   )
 }
 
-export function telegramLinkUrl(chatId: string) {
+export async function telegramLinkUrl(
+  chatId: string,
+  profile: { username?: string | null; firstName?: string | null } = {},
+) {
   const base = process.env.BETTER_AUTH_URL?.trim() || 'http://localhost:5173'
   const url = new URL(base)
-  url.searchParams.set('telegram', createTelegramLink(chatId))
+  url.searchParams.set('telegram', await createTelegramLink(chatId, profile))
   return url.toString()
 }
 

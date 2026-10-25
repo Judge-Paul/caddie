@@ -11,6 +11,8 @@ const XML_NS = 'http://www.w3.org/XML/1998/namespace'
 
 export const MAX_DOCX_BYTES = 15 * 1024 * 1024
 const MAX_ENTRIES = 2_000
+const MAX_UNCOMPRESSED_BYTES = 60 * 1024 * 1024
+const MAX_RELATIONSHIP_XML_BYTES = 2 * 1024 * 1024
 
 export class DocxError extends Error {
   readonly status: number
@@ -189,6 +191,19 @@ export async function openDocx(input: Uint8Array): Promise<ParsedDocx> {
     throw new DocxError('That DOCX contains too many files.', 422)
   }
 
+  let uncompressed = 0
+  for (const name of names) {
+    const entry = zip.files[name]
+    const size = (entry as unknown as { _data?: { uncompressedSize?: number } })
+      ._data?.uncompressedSize
+    if (typeof size === 'number') {
+      uncompressed += size
+      if (uncompressed > MAX_UNCOMPRESSED_BYTES) {
+        throw new DocxError('That DOCX expands to too much data.', 413)
+      }
+    }
+  }
+
   const unsafe = names.find((name) =>
     /(^|\/)(vbaProject\.bin|vbaData\.xml|activeX|embeddings)\b/i.test(name),
   )
@@ -197,6 +212,35 @@ export async function openDocx(input: Uint8Array): Promise<ParsedDocx> {
       'That DOCX contains macros or embedded objects. Save a clean copy without them.',
       422,
     )
+  }
+
+  for (const name of names.filter((entry) =>
+    /^word\/_rels\/.*\.rels$/i.test(entry),
+  )) {
+    const file = zip.file(name)
+    if (!file) continue
+    const xml = await file.async('string')
+    if (xml.length > MAX_RELATIONSHIP_XML_BYTES) {
+      throw new DocxError('That DOCX has an oversized relationship file.', 413)
+    }
+    const rels = parseXml(xml)
+    const relationships = rels.getElementsByTagNameNS(
+      'http://schemas.openxmlformats.org/package/2006/relationships',
+      'Relationship',
+    )
+    for (let index = 0; index < relationships.length; index += 1) {
+      const relation = relationships.item(index)
+      if (!relation || relation.getAttribute('TargetMode') !== 'External') {
+        continue
+      }
+      const type = relation.getAttribute('Type') ?? ''
+      if (!/\/hyperlink$/i.test(type)) {
+        throw new DocxError(
+          'That DOCX links to external content. Save a normal copy without linked images or templates.',
+          422,
+        )
+      }
+    }
   }
 
   const documentFile = zip.file('word/document.xml')
