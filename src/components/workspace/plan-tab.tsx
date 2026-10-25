@@ -17,14 +17,14 @@ import {
 } from 'lucide-react'
 import type { WorkspaceTab } from './types'
 
-type OverviewTabProps = {
+type PlanTabProps = {
   application: ApplicationDetail
   score: Score | null
   stories: CvStory[]
   applicationEmail: string | null
   locked: boolean
   onOpenTab: (tab: WorkspaceTab) => void
-  onImproveCv: () => void
+  onTailorCv: () => void
   onOpenProfile: () => void
 }
 
@@ -84,16 +84,16 @@ function PackageRow({
   )
 }
 
-export function OverviewTab({
+export function PlanTab({
   application,
   score,
   stories,
   applicationEmail,
   locked,
   onOpenTab,
-  onImproveCv,
+  onTailorCv,
   onOpenProfile,
-}: OverviewTabProps) {
+}: PlanTabProps) {
   const jd = application.classification?.data ?? null
   const gaps = score?.gaps ?? []
   const related = score?.related ?? []
@@ -164,10 +164,10 @@ export function OverviewTab({
                       variant="outline"
                       size="xs"
                       className="bg-card text-muted-foreground hover:text-ink max-sm:h-11"
-                      onClick={onImproveCv}
+                      onClick={onTailorCv}
                     >
                       <Sparkles />
-                      Improve CV
+                      Tailor CV
                     </Button>
                   )}
                 </div>
@@ -231,7 +231,7 @@ export function OverviewTab({
             label="Cover letter"
             status={application.hasCoverLetter ? 'Drafted' : 'Not started'}
             action={application.hasCoverLetter || locked ? 'View' : 'Draft'}
-            onClick={() => onOpenTab('cover')}
+            onClick={() => onOpenTab('letter')}
           />
           <PackageRow
             icon={<Mail className="size-3.5" strokeWidth={1.75} />}

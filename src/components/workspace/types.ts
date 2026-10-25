@@ -1,1 +1,1 @@
-export type WorkspaceTab = 'overview' | 'cv' | 'cover' | 'email'
+export type WorkspaceTab = 'plan' | 'cv' | 'letter' | 'email'

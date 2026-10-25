@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { CvMapDrawer } from '@/components/cv/cv-map'
 import { CoverLetterTab } from '@/components/workspace/cover-letter-tab'
 import { EmailTab } from '@/components/workspace/email-tab'
-import { OverviewTab } from '@/components/workspace/overview-tab'
+import { PlanTab } from '@/components/workspace/plan-tab'
 import type { WorkspaceTab } from '@/components/workspace/types'
 import {
   applicationStage,
@@ -33,7 +33,7 @@ import {
   CheckCircle2,
   Download,
   FileText,
-  LayoutDashboard,
+  ListChecks,
   LoaderCircle,
   ListTree,
   LockKeyhole,
@@ -74,9 +74,9 @@ function PaperPlaceholder({ label }: { label?: string }) {
 }
 
 const TABS: { id: WorkspaceTab; label: string; icon: typeof FileText }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'plan', label: 'Plan', icon: ListChecks },
   { id: 'cv', label: 'CV', icon: FileText },
-  { id: 'cover', label: 'Cover letter', icon: PenLine },
+  { id: 'letter', label: 'Letter', icon: PenLine },
   { id: 'email', label: 'Email', icon: Mail },
 ]
 
@@ -95,7 +95,7 @@ export function Workspace({
   const jdTimerRef = useRef<number | null>(null)
   const cvRequestRef = useRef<AbortController | null>(null)
 
-  const [tab, setTab] = useState<WorkspaceTab>('overview')
+  const [tab, setTab] = useState<WorkspaceTab>('plan')
   const [pdf, setPdf] = useState<CvPdf | null>(null)
   const [docx, setDocx] = useState<File | null>(null)
   const [uploadId, setUploadId] = useState(0)
@@ -326,7 +326,7 @@ export function Workspace({
       : !application.hasEmailDraft
         ? application.hasCoverLetter
           ? { label: 'Draft email', tab: 'email' as const }
-          : { label: 'Draft cover letter', tab: 'cover' as const }
+          : { label: 'Draft letter', tab: 'letter' as const }
         : { label: 'Review & send', tab: 'email' as const }
 
   async function handleDownloadCv() {
@@ -460,7 +460,7 @@ export function Workspace({
                 const Icon = entry.icon
                 const active = tab === entry.id
                 const complete =
-                  (entry.id === 'cover' && application.hasCoverLetter) ||
+                  (entry.id === 'letter' && application.hasCoverLetter) ||
                   (entry.id === 'email' && application.hasEmailDraft)
 
                 return (
@@ -493,15 +493,15 @@ export function Workspace({
               role="tabpanel"
               aria-labelledby={`application-tab-${tab}`}
             >
-              {tab === 'overview' ? (
-                <OverviewTab
+              {tab === 'plan' ? (
+                <PlanTab
                   application={application}
                   score={score}
                   stories={stories}
                   applicationEmail={applicationEmail}
                   locked={locked}
                   onOpenTab={selectTab}
-                  onImproveCv={() => {
+                  onTailorCv={() => {
                     setTab('cv')
                     setMapOpen(false)
                     setAssistantOpen(true)
@@ -533,7 +533,7 @@ export function Workspace({
                           }}
                         >
                           <ListTree />
-                          Structure
+                          Outline
                         </Button>
                       ) : null}
                       <Button
@@ -560,7 +560,7 @@ export function Workspace({
                           }}
                         >
                           <Sparkles />
-                          Improve CV
+                          Tailor CV
                         </Button>
                       ) : null}
                     </div>
@@ -623,7 +623,7 @@ export function Workspace({
                 </div>
               ) : null}
 
-              {tab === 'cover' ? (
+              {tab === 'letter' ? (
                 <CoverLetterTab
                   application={application}
                   canCompose={canCompose}
