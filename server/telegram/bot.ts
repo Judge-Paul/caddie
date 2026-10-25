@@ -16,6 +16,7 @@ import { scoreRequirements } from '../../src/lib/match'
 import { sendApplication } from '../send'
 import { ingestCv } from '../cv/ingest'
 import { createPreviewToken } from '../preview-token'
+import { consumeRateLimit } from '../rate-limit'
 import { TelegramApiError, downloadTelegramFile } from './api'
 import {
   telegramLinkForChat,
@@ -189,6 +190,13 @@ async function applyPrepared(
   chatId?: string,
 ) {
   const chat = chatId ?? String(ctx.chat!.id)
+  const quota = consumeRateLimit(`telegram-send:${link.userId}`, 5, 60_000)
+  if (!quota.allowed) {
+    await ctx.reply(
+      `Too many send requests. Wait ${quota.retryAfter} seconds and try again.`,
+    )
+    return
+  }
   const application = await getApplication(link.userId, applicationId)
   if (application.sentAt || application.completedAt) {
     await ctx.reply('That application is already locked.')
@@ -336,6 +344,13 @@ async function runIntake(
 }
 
 async function handleDocument(ctx: Context, link: TelegramLinkDoc) {
+  const quota = consumeRateLimit(`telegram-document:${link.userId}`, 5, 60_000)
+  if (!quota.allowed) {
+    await ctx.reply(
+      `Too many CV uploads. Wait ${quota.retryAfter} seconds and try again.`,
+    )
+    return
+  }
   const document = ctx.message?.document
   if (!document) return
   const name = document.file_name || ''
@@ -373,6 +388,13 @@ async function handleDocument(ctx: Context, link: TelegramLinkDoc) {
 }
 
 async function handleStatus(ctx: Context, link: TelegramLinkDoc, chatId: string) {
+  const quota = consumeRateLimit(`telegram-status:${link.userId}`, 10, 60_000)
+  if (!quota.allowed) {
+    await ctx.reply(
+      `Too many status checks. Wait ${quota.retryAfter} seconds and try again.`,
+    )
+    return
+  }
   const session = await sessionFor(link, chatId)
   if (!session?.activeApplicationId) {
     await ctx.reply('There is no application in progress. Paste a job description to start one.')
@@ -555,6 +577,18 @@ export function createTelegramBot(token: string) {
       }
       await ctx.reply(
         'Send only the email address to use, or say cancel.',
+      )
+      return
+    }
+
+    const routerQuota = consumeRateLimit(
+      `telegram-router:${link.userId}`,
+      20,
+      60_000,
+    )
+    if (!routerQuota.allowed) {
+      await ctx.reply(
+        `Too many requests. Wait ${routerQuota.retryAfter} seconds and try again.`,
       )
       return
     }
