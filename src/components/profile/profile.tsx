@@ -10,6 +10,7 @@ import {
   saveSending,
   saveStory,
   testSending,
+  unlinkTelegram,
 } from '@/lib/account'
 import type { AccountMe } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
@@ -21,10 +22,12 @@ import {
   KeyRound,
   LoaderCircle,
   Mail,
+  MessageCircle,
   Pencil,
   Plus,
   ShieldCheck,
   Trash2,
+  Unplug,
   Upload,
   X,
 } from 'lucide-react'
@@ -288,6 +291,8 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
   const [sendingError, setSendingError] = useState('')
   const [sendingNotice, setSendingNotice] = useState('')
   const [confirmRemoveIdentity, setConfirmRemoveIdentity] = useState(false)
+  const [telegramBusy, setTelegramBusy] = useState(false)
+  const [telegramError, setTelegramError] = useState('')
   const hasIdentity = Boolean(sending.hasKey && sending.email)
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -379,6 +384,23 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
       setSendingError(caught instanceof Error ? caught.message : 'Sending could not be saved.')
     } finally {
       setSendingBusy(null)
+    }
+  }
+
+  async function handleUnlinkTelegram() {
+    setTelegramBusy(true)
+    setTelegramError('')
+    try {
+      await unlinkTelegram()
+      await onRefreshMe()
+    } catch (caught) {
+      setTelegramError(
+        caught instanceof Error
+          ? caught.message
+          : 'Telegram could not be disconnected.',
+      )
+    } finally {
+      setTelegramBusy(false)
     }
   }
 
@@ -857,6 +879,76 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 Verify a domain in Resend
                 <ExternalLink className="size-3" strokeWidth={1.75} />
               </a>
+            </section>
+
+            <section className="mt-6 rounded-xl border border-border bg-card p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <SectionLabel>Telegram</SectionLabel>
+                  <p className="mt-1 text-[11.5px] leading-[1.45] text-muted-foreground">
+                    Use Caddie from Telegram for application intake, previews and
+                    email sending.
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-md px-1.5 py-0.5 text-[9.5px] font-medium ${
+                    me.telegram.connected
+                      ? 'bg-success/10 text-success'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {me.telegram.connected ? 'Connected' : 'Not connected'}
+                </span>
+              </div>
+
+              {me.telegram.connected ? (
+                <div className="mt-4">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/15 p-3">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-brand-100 bg-brand-50 text-brand-600">
+                      <MessageCircle className="size-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-medium text-ink">
+                        {me.telegram.username
+                          ? `@${me.telegram.username}`
+                          : me.telegram.firstName || 'Telegram connected'}
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                        Auto-apply {me.telegram.autoApply ? 'on' : 'off'}
+                        {me.telegram.linkedAt
+                          ? ` · since ${formatDate(me.telegram.linkedAt)}`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-muted-foreground hover:text-destructive max-sm:h-11"
+                    onClick={() => void handleUnlinkTelegram()}
+                    disabled={telegramBusy}
+                  >
+                    {telegramBusy ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Unplug />
+                    )}
+                    {telegramBusy ? 'Disconnecting…' : 'Disconnect Telegram'}
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-lg border border-dashed border-border bg-muted/15 px-3 py-3 text-[10.5px] leading-[1.5] text-muted-foreground">
+                  Open the Caddie bot in Telegram and send /start. The bot will
+                  give you a link to connect this account.
+                </p>
+              )}
+
+              {telegramError ? (
+                <p role="alert" className="mt-2 flex items-start gap-1.5 text-[10.5px] leading-[1.45] text-muted-foreground">
+                  <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
+                  {telegramError}
+                </p>
+              ) : null}
             </section>
 
             <p className="mt-3 flex items-start gap-2 px-1 text-[10px] leading-[1.45] text-muted-foreground">

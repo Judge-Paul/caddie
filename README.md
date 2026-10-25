@@ -20,9 +20,12 @@ Cloudflare R2 bucket for CV files.
 npm install
 cp .env.example .env.local
 # Fill in CF_ACCOUNT_ID, CF_API_KEY, BROWSERBASE_API_KEY,
-# MONGODB_URI, BETTER_AUTH_SECRET, BETTER_AUTH_URL, APP_ENCRYPTION_KEY
-# and R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET.
+# MONGODB_URI, BETTER_AUTH_SECRET, BETTER_AUTH_URL, APP_ENCRYPTION_KEY,
+# R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+# and TELEGRAM_BOT_TOKEN.
 npm run dev
+# in a second terminal, with the Telegram token set:
+npm run bot
 ```
 
 For local development, MongoDB can run in Docker:
@@ -63,6 +66,28 @@ replace the key, remove the identity and add it again.
 Open <http://localhost:5173>, continue with Google, upload your CV in Profile,
 then paste a job description to create an application.
 
+### Telegram
+
+Create a bot with [@BotFather](https://t.me/BotFather), put its token in
+`TELEGRAM_BOT_TOKEN`, and run `npm run bot`. The bot uses long polling, so the
+API and bot are separate processes using the same MongoDB and R2 account.
+
+In Telegram, send `/start` and open the connect link. After Google sign-in, the
+chat is linked to your Caddie account and the status appears in Profile. Send a
+DOCX or PDF to set the base CV, then paste a job description. Caddie prepares
+the application and sends:
+
+- a coverage/gap summary
+- signed CV and cover-letter links
+- an email recipient, subject and preview
+- **Apply now** and **Cancel** buttons
+
+`/auto on` sends prepared applications without the review step when an
+application email and sending identity are available. `/auto off` restores
+review. Missing email addresses, missing Resend identities and failed
+generation are always reported; nothing is sent silently. The sending identity
+is configured on the website, never in Telegram.
+
 ```bash
 npm run build    # typecheck + production build
 npm run preview  # serve the build
@@ -91,8 +116,9 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
   found in the posting is prefilled into the email recipient and marked "From
   posting."
 - **Send from your own address** — connect Resend in Profile. Sending attaches
-  the application's PDF, records the recipient and time, and never auto-sends.
-  The cover letter stays a separate draft; it is not automatically attached.
+  the application's PDF, records the recipient and time, and the web app never
+  auto-sends. In the web app the cover letter stays a separate draft and is not
+  attached automatically; Telegram auto-apply attaches it when it exists.
 - **Complete and lock** — mark an application complete without sending, or send
   it. Either action locks the CV, cover letter, posting and email against further
   edits, while the package stays readable and downloadable.
@@ -141,13 +167,19 @@ CV/JD/experiences to Gemma when you draft a cover letter
 or email or use the CV planner. Company research sends only the company name,
 role fields and a one-line summary to Browserbase, never the CV. When you send an
 application, Resend receives the from and to addresses, the email text and, when
-attached, the CV PDF read from R2. The Resend key is encrypted at rest with
+attached, the CV PDF read from R2 and the cover-letter PDF when attached. The
+Resend key is encrypted at rest with
 `APP_ENCRYPTION_KEY`; only its last four characters are returned to the browser.
-Matching stays in the browser.
+The web app matches in the browser; Telegram uses the same matcher server-side.
 
 Public work URLs are sent to Browserbase (website) or GitHub (profile) when you
 press **Read links**; Caddie stores the extracted summary, skills and projects
 in your profile. Neither receives your CV.
+
+Telegram messages pass through Telegram's servers. Caddie sends postings, CV
+text, experiences and drafts to Cloudflare for the features you invoke. The bot
+stores the linked chat ID, conversation state and application progress in your
+Caddie account. It never asks for or stores a Resend key in Telegram.
 
 Built with Vite, React, Tailwind CSS v4, shadcn/ui, Better Auth, Bun/Hono,
 MongoDB, Resend and Cloudflare Workers AI. Design and engineering conventions

@@ -38,7 +38,7 @@ export function AuthScreen() {
 
     const result = await signIn.social({
       provider: 'google',
-      callbackURL: window.location.origin,
+      callbackURL: window.location.href,
     })
 
     if (result.error) {

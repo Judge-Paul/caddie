@@ -33,6 +33,7 @@ import { FitError, proposeCvFit } from './cv/fit'
 import { planCv } from './cv/plan'
 import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
+import { MAX_CV_BYTES, ingestCv } from './cv/ingest'
 import {
   AccountError,
   createApplication,
@@ -59,6 +60,18 @@ import { researchCompany } from './research'
 import { sendApplication } from './send'
 import { StorageError, storageConfigured } from './storage'
 import {
+  PreviewTokenError,
+  verifyPreviewToken,
+} from './preview-token'
+import {
+  TelegramLinkError,
+  linkTelegram,
+  telegramStatus,
+  unlinkTelegram,
+  updateTelegramIdentity,
+} from './telegram/links'
+import { sendTelegramText, telegramChatInfo } from './telegram/api'
+import {
   deleteSending,
   deleteSendingKey,
   getSending,
@@ -70,7 +83,7 @@ import { validateJd } from './validate'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
-const MAX_PDF_BYTES = 20 * 1024 * 1024
+const MAX_PDF_BYTES = MAX_CV_BYTES
 
 const app = new Hono<AppEnv>()
 
@@ -103,7 +116,13 @@ app.all('/api/auth/*', (c) => {
 
 app.use('/api/*', (c, next) => {
   const path = c.req.path
-  if (path.startsWith('/api/auth/') || path === '/api/health') return next()
+  if (
+    path.startsWith('/api/auth/') ||
+    path.startsWith('/api/preview/') ||
+    path === '/api/health'
+  ) {
+    return next()
+  }
   return sessionMiddleware(c, next)
 })
 
@@ -234,6 +253,12 @@ function cvFailure(c: Context, error: unknown) {
   }
   if (error instanceof StorageError) {
     return c.json({ error: error.message }, error.status)
+  }
+  if (error instanceof TelegramLinkError) {
+    return c.json({ error: error.message }, error.status as 400 | 409 | 410 | 503)
+  }
+  if (error instanceof PreviewTokenError) {
+    return c.json({ error: error.message }, error.status as 401 | 410 | 503)
   }
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)
@@ -434,18 +459,12 @@ function safeFileName(name: string) {
 }
 
 async function readCvUpload(c: Context) {
-  const type = c.req.header('content-type') ?? ''
   const length = Number(c.req.header('content-length') ?? 0)
-  if (Number.isFinite(length) && length > MAX_PDF_BYTES) {
+  if (Number.isFinite(length) && length > MAX_CV_BYTES) {
     throw new DocxError('That CV is larger than 20 MB.', 413)
   }
 
   const bytes = new Uint8Array(await c.req.arrayBuffer())
-  if (bytes.byteLength === 0) throw new DocxError('That CV is empty.', 400)
-  if (bytes.byteLength > MAX_PDF_BYTES) {
-    throw new DocxError('That CV is larger than 20 MB.', 413)
-  }
-
   let fileName = ''
   try {
     const header = c.req.header('x-file-name')
@@ -454,33 +473,11 @@ async function readCvUpload(c: Context) {
     fileName = ''
   }
 
-  const isPdf = /pdf/i.test(type) ||
-    (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)
-  const isDocx = /wordprocessingml/i.test(type) ||
-    (bytes[0] === 0x50 && bytes[1] === 0x4b)
-
-  if (isPdf) {
-    if (bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46) {
-      throw new DocxError('That file is not a valid PDF.', 415)
-    }
-    return { kind: 'pdf' as const, fileName: fileName || 'cv.pdf', pdf: bytes }
-  }
-
-  if (isDocx) {
-    if (bytes.byteLength > MAX_DOCX_BYTES) {
-      throw new DocxError('That DOCX is larger than 15 MB.', 413)
-    }
-    await openDocx(bytes)
-    const pdf = await renderDocxToPdf(bytes)
-    return {
-      kind: 'docx' as const,
-      fileName: fileName || 'cv.docx',
-      docx: bytes,
-      pdf,
-    }
-  }
-
-  throw new DocxError('Upload a DOCX or PDF CV.', 415)
+  return ingestCv({
+    bytes,
+    contentType: c.req.header('content-type'),
+    fileName,
+  })
 }
 
 function sendFile(
@@ -503,6 +500,64 @@ app.get('/api/me', async (c) => {
     getSending(session.user.id),
   ])
   return c.json({ ...me, sending })
+})
+
+app.get('/api/preview/:token', async (c) => {
+  try {
+    const preview = verifyPreviewToken(c.req.param('token'))
+    if (preview.k === 'cv') {
+      const file = await getApplicationFile(preview.u, preview.a, 'pdf')
+      return sendFile(c, file)
+    }
+    const application = await getApplication(preview.u, preview.a)
+    if (!application.coverLetter?.text.trim()) {
+      return c.json({ error: 'There is no cover letter to preview.' }, 404)
+    }
+    const pdf = await renderCoverLetterPdf(application.coverLetter.text)
+    return c.body(pdf, 200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="cover-letter.pdf"',
+      'Cache-Control': 'private, no-store',
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/telegram/link', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { token?: unknown } | null
+  if (typeof body?.token !== 'string' || !body.token.trim()) {
+    return c.json({ error: 'That Telegram link is missing.' }, 400)
+  }
+  try {
+    const session = c.get('session')
+    const linked = await linkTelegram(session.user.id, body.token.trim())
+    try {
+      const chat = await telegramChatInfo(linked.chatId)
+      await updateTelegramIdentity(linked.chatId, {
+        username: chat.username ?? null,
+        firstName: chat.first_name ?? null,
+      })
+      await sendTelegramText(
+        linked.chatId,
+        'Telegram is connected to Caddie. Send me your CV as a DOCX or PDF, or paste a job description.',
+      )
+    } catch {
+      // Linking succeeds even if the confirmation message cannot be sent.
+    }
+    return c.json({ telegram: await telegramStatus(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/telegram/link', async (c) => {
+  try {
+    const session = c.get('session')
+    return c.json({ telegram: await unlinkTelegram(session.user.id) })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
 })
 
 app.put('/api/me/public-work', async (c) => {
@@ -737,6 +792,7 @@ app.post('/api/applications/:id/send', async (c) => {
         subject: body.subject,
         body: body.body,
         attachCv: body.attachCv !== false,
+        attachCoverLetter: body.attachCoverLetter === true,
       }),
     )
   } catch (error) {

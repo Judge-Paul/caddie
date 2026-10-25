@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "api": "bun server/index.ts",
     "eval": "bun eval/run.ts",
-    "migrate:r2": "bun server/migrate-r2.ts"
+    "migrate:r2": "bun server/migrate-r2.ts",
+    "bot": "bun server/telegram/index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",
@@ -26,6 +27,7 @@
     "better-auth": "^1.7.12",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.0",
+    "grammy": "^1.46.0",
     "hono": "^4.13.13",
     "jszip": "^3.10.2",
     "lucide-react": "^1.61.0",

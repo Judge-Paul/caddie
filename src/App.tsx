@@ -11,6 +11,7 @@ import {
   deleteApplication,
   getApplication,
   getMe,
+  linkTelegram,
   saveApplicationCv,
   saveStory,
   updateApplication,
@@ -79,8 +80,14 @@ function AccountApp({ user }: { user: AccountUser }) {
   const [actionError, setActionError] = useState('')
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [active, setActive] = useState<ApplicationDetail | null>(null)
-  const [view, setView] = useState<'applications' | 'profile'>('applications')
+  const [view, setView] = useState<'applications' | 'profile'>(() =>
+    new URLSearchParams(window.location.search).get('view') === 'profile'
+      ? 'profile'
+      : 'applications',
+  )
+  const [telegramNotice, setTelegramNotice] = useState('')
   const mountedRef = useRef(true)
+  const telegramLinkHandled = useRef(false)
 
   const loadMe = useCallback(async () => {
     setError('')
@@ -106,6 +113,46 @@ function AccountApp({ user }: { user: AccountUser }) {
       mountedRef.current = false
     }
   }, [loadMe])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('view') !== 'profile') return
+    params.delete('view')
+    const query = params.toString()
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!me || telegramLinkHandled.current) return
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('telegram')
+    if (!token) return
+    telegramLinkHandled.current = true
+    params.delete('telegram')
+    const query = params.toString()
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    )
+    void linkTelegram(token)
+      .then(async () => {
+        setTelegramNotice('Telegram connected.')
+        setView('profile')
+        await loadMe()
+      })
+      .catch((caught) => {
+        setTelegramNotice(
+          caught instanceof Error
+            ? caught.message
+            : 'That Telegram link could not be connected.',
+        )
+      })
+  }, [loadMe, me])
 
   function patchMeApplication(updated: ApplicationDetail) {
     setMe((current) =>
@@ -289,6 +336,21 @@ function AccountApp({ user }: { user: AccountUser }) {
           </Button>
         </div>
       </header>
+
+      {telegramNotice ? (
+        <div className="fixed inset-x-4 bottom-4 z-30 mx-auto flex max-w-[520px] items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-[0_18px_50px_-24px_rgba(13,21,38,0.4)] sm:left-auto sm:right-6 sm:mx-0">
+          <p role="status" className="text-[11.5px] leading-[1.45] text-ink">
+            {telegramNotice}
+          </p>
+          <button
+            type="button"
+            onClick={() => setTelegramNotice('')}
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       {view === 'profile' ? (
         <Profile me={me} onUploadCv={handleUploadCv} onRefreshMe={loadMe} />

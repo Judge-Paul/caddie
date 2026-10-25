@@ -25,6 +25,7 @@ import {
   normalisePublicLinks,
   readPublicWork,
 } from './public-work'
+import { telegramStatus } from './telegram/links'
 import {
   applicationCvKey,
   baseCvKey,
@@ -209,7 +210,7 @@ export async function getMe(
   user: AccountUser,
 ): Promise<Omit<AccountMe, 'sending'>> {
   const store = requireMongo()
-  const [profile, applications, stories] = await Promise.all([
+  const [profile, applications, stories, telegram] = await Promise.all([
     profileOf(userId),
     store.db
       .collection<ApplicationDoc>('applications')
@@ -222,6 +223,7 @@ export async function getMe(
       .sort({ updatedAt: -1 })
       .project<CvStory>({ _id: 0, userId: 0 })
       .toArray(),
+    telegramStatus(userId),
   ])
 
   return {
@@ -230,6 +232,7 @@ export async function getMe(
     applications: applications.map(summary),
     stories,
     publicWork: profile?.publicWork ?? emptyPublicWork(),
+    telegram,
   }
 }
 

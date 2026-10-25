@@ -72,6 +72,14 @@ export type SavePublicWorkInput = {
   github: string | null
 }
 
+export type TelegramStatus = {
+  connected: boolean
+  username: string | null
+  firstName: string | null
+  autoApply: boolean
+  linkedAt: string | null
+}
+
 export type SendingSettings = {
   email: string | null
   fromName: string | null
@@ -110,6 +118,7 @@ export type AccountMe = {
   applications: ApplicationSummary[]
   stories: CvStory[]
   publicWork: PublicWork
+  telegram: TelegramStatus
   sending: SendingSettings
 }
 
@@ -137,6 +146,7 @@ export type SendApplicationInput = {
   subject: string
   body: string
   attachCv: boolean
+  attachCoverLetter?: boolean
 }
 
 export type ComposeKind = 'cover-letter' | 'email'

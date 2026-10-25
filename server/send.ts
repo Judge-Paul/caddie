@@ -6,6 +6,7 @@ import {
   markApplicationSent,
   updateApplication,
 } from './account'
+import { renderCoverLetterPdf } from './cover-letter'
 import { sendResendEmail } from './resend'
 import { sendingForSend } from './sending'
 
@@ -53,6 +54,14 @@ export async function sendApplication(
     attachmentPayload.push({
       filename: file.fileName,
       content: Buffer.from(file.buffer).toString('base64'),
+    })
+  }
+
+  if (input.attachCoverLetter && application.coverLetter?.text.trim()) {
+    const pdf = await renderCoverLetterPdf(application.coverLetter.text)
+    attachmentPayload.push({
+      filename: 'cover-letter.pdf',
+      content: Buffer.from(pdf).toString('base64'),
     })
   }
 

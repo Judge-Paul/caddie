@@ -11,6 +11,7 @@ import type {
   SaveSendingInput,
   SendApplicationInput,
   SendingSettings,
+  TelegramStatus,
   UpdateApplicationPatch,
 } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
@@ -88,6 +89,19 @@ export function uploadBaseCv(file: File) {
 
 export function deleteBaseCv() {
   return request<{ ok: true }>('/api/me/cv', { method: 'DELETE' })
+}
+
+export function linkTelegram(token: string) {
+  return request<{ telegram: TelegramStatus }>('/api/telegram/link', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+export function unlinkTelegram() {
+  return request<{ telegram: TelegramStatus }>('/api/telegram/link', {
+    method: 'DELETE',
+  })
 }
 
 export function savePublicWork(input: SavePublicWorkInput) {
