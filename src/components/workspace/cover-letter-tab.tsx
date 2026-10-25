@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Eyebrow, Notice } from '@/components/ui/section'
 import { composeApplication, downloadApplicationCoverLetter } from '@/lib/account'
 import type { ApplicationDetail, UpdateApplicationPatch } from '@shared/account'
 import {
-  AlertCircle,
   Check,
   Copy,
   Download,
@@ -126,9 +126,7 @@ export function CoverLetterTab({
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-            Cover letter
-          </p>
+          <Eyebrow>Letter</Eyebrow>
           <h2 className="mt-1 text-[18px] leading-tight font-semibold tracking-[-0.025em] text-ink">
             A letter grounded in your work.
           </h2>
@@ -181,35 +179,23 @@ export function CoverLetterTab({
       </div>
 
       {!locked && !canCompose ? (
-        <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[11px] leading-[1.45] text-muted-foreground">
-          <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
+        <Notice className="mt-3">
           Caddie needs a read posting and selectable CV text before it can draft.
-        </p>
+        </Notice>
       ) : null}
 
       {locked ? (
-        <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[11px] leading-[1.45] text-muted-foreground">
-          <LockKeyhole className="mt-px size-3.5 shrink-0" strokeWidth={1.75} />
-          This cover letter is locked after sending or completion. It can still be downloaded.
-        </p>
+        <Notice className="mt-3">
+          This letter is locked after sending or completion. It can still be downloaded.
+        </Notice>
       ) : null}
 
-      {error || notice ? (
-        <p
-          role={error ? 'alert' : 'status'}
-          className={`mt-3 flex items-start gap-1.5 rounded-lg border px-3 py-2 text-[11px] leading-[1.45] ${
-            error
-              ? 'border-border/70 bg-muted/30 text-muted-foreground'
-              : 'border-success/20 bg-success/5 text-success'
-          }`}
-        >
-          {error ? (
-            <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-          ) : (
-            <Check className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-          )}
-          {error || notice}
-        </p>
+      {error ? (
+        <Notice className="mt-3">{error}</Notice>
+      ) : notice ? (
+        <Notice tone="success" className="mt-3">
+          {notice}
+        </Notice>
       ) : null}
 
       <div className="paper-shadow mx-auto mt-4 w-full max-w-[660px] bg-white px-6 py-7 ring-1 ring-black/[0.04] sm:px-10 sm:py-9">
