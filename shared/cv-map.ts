@@ -131,6 +131,20 @@ export function buildCvMap(cv: CvClassification): CvMap {
   }
 }
 
+/** Every project on the map in one list, whatever role it nests under. */
+export function allCvProjects(map: CvMap): CvMapProject[] {
+  return [
+    ...map.roles.flatMap((role) => role.projects),
+    ...map.orphanProjects,
+  ]
+}
+
+/** Find one project by id without caring which role it nests under. */
+export function findCvProject(map: CvMap, projectId: string | null): CvMapProject | null {
+  if (!projectId) return null
+  return allCvProjects(map).find((project) => project.id === projectId) ?? null
+}
+
 export function cvMapTargets(map: CvMap): CvMapTarget[] {
   const targets: CvMapTarget[] = []
 
