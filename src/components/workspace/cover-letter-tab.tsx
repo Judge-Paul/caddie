@@ -58,7 +58,7 @@ export function CoverLetterTab({
       setText(updated.coverLetter?.text ?? '')
       setNotice('Draft written from your CV and saved experiences.')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The cover letter could not be drafted.')
+      setError(caught instanceof Error ? caught.message : 'The letter could not be drafted.')
     } finally {
       setBusy(null)
     }
@@ -85,7 +85,7 @@ export function CoverLetterTab({
       if (!quiet) setNotice('Saved.')
       return true
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The cover letter could not be saved.')
+      setError(caught instanceof Error ? caught.message : 'The letter could not be saved.')
       return false
     } finally {
       if (!quiet) setBusy(null)
@@ -105,7 +105,7 @@ export function CoverLetterTab({
     try {
       await downloadApplicationCoverLetter(application.id, 'Cover-Letter.pdf')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The cover letter could not be downloaded.')
+      setError(caught instanceof Error ? caught.message : 'The letter could not be downloaded.')
     } finally {
       setDownloadBusy(false)
     }
@@ -206,7 +206,7 @@ export function CoverLetterTab({
               setText(event.target.value)
               if (notice) setNotice('')
             }}
-            aria-label="Cover letter"
+              aria-label="Letter"
             spellCheck
             readOnly={locked}
             className="min-h-[520px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-[13px] leading-[1.75] text-ink outline-none transition-colors [field-sizing:content] focus-visible:bg-brand-50/25 focus-visible:ring-0"
@@ -223,7 +223,7 @@ export function CoverLetterTab({
             </p>
             {locked ? (
               <p className="mt-4 max-w-[40ch] text-[11px] leading-[1.5] text-muted-foreground">
-                This application is locked. No cover letter was saved.
+                This application is locked. No letter was saved.
               </p>
             ) : (
               <Button
@@ -233,7 +233,7 @@ export function CoverLetterTab({
                 disabled={!canCompose || busy !== null}
               >
                 {busy === 'generate' ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
-                {busy === 'generate' ? 'Drafting…' : 'Draft cover letter'}
+                {busy === 'generate' ? 'Drafting…' : 'Draft letter'}
               </Button>
             )}
           </div>
@@ -278,7 +278,7 @@ export function CoverLetterTab({
 
       <ConfirmDialog
         open={confirmGenerate}
-        title="Replace the cover letter?"
+        title="Replace the letter?"
         description="Generating again will replace the current text. Save it first if you want to keep it."
         confirmLabel="Generate again"
         busy={busy === 'generate'}
