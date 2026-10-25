@@ -37,6 +37,7 @@ import { FitError, proposeCvFit } from './cv/fit'
 import { planCv } from './cv/plan'
 import { MeasureError } from './cv/measure'
 import { RenderError, renderDocxToPdf } from './cv/render'
+import { RenderQueueFullError } from './cv/render-queue'
 import { MAX_CV_BYTES, ingestCv } from './cv/ingest'
 import {
   AccountError,
@@ -85,6 +86,7 @@ import {
 } from './sending'
 import { sessionMiddleware, type AppEnv } from './session'
 import { validateJd } from './validate'
+import { userRateLimit } from './rate-limit'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
@@ -138,6 +140,15 @@ app.use('/api/*', (c, next) => {
   }
   return sessionMiddleware(c, next)
 })
+
+app.use('/api/classify', userRateLimit('classification', 8))
+app.use('/api/research', userRateLimit('research', 6))
+app.use('/api/cv/classify', userRateLimit('CV read', 6))
+app.use('/api/cv/plan', userRateLimit('CV plan', 3))
+app.use('/api/cv/fit', userRateLimit('CV fit', 5))
+app.use('/api/applications/:id/compose', userRateLimit('draft generation', 4))
+app.use('/api/applications/:id/send', userRateLimit('email send', 5))
+app.use('/api/me/public-work', userRateLimit('public work read', 3))
 
 app.post('/api/classify', async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
@@ -258,7 +269,7 @@ function cvFailure(c: Context, error: unknown) {
   if (error instanceof AccountError) {
     return c.json(
       { error: error.message },
-      error.status as 400 | 404 | 409 | 413 | 422 | 500 | 502 | 503 | 504,
+      error.status as 400 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503 | 504,
     )
   }
   if (error instanceof SecretError) {
@@ -272,6 +283,9 @@ function cvFailure(c: Context, error: unknown) {
   }
   if (error instanceof PreviewTokenError) {
     return c.json({ error: error.message }, error.status as 401 | 410 | 503)
+  }
+  if (error instanceof RenderQueueFullError) {
+    return c.json({ error: error.message }, error.status)
   }
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)

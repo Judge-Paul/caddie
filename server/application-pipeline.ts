@@ -20,6 +20,7 @@ import { editDocx } from './cv/docx'
 import { planCv } from './cv/plan'
 import { renderDocxToPdf } from './cv/render'
 import { readConfig } from './env'
+import { consumeRateLimit, RateLimitError } from './rate-limit'
 import { researchCompany } from './research'
 import { validateJd } from './validate'
 
@@ -134,6 +135,8 @@ export async function prepareApplication(
   } = {},
 ): Promise<PreparedApplication> {
   const jd = cleanJd(jdText)
+  const quota = consumeRateLimit(`telegram-application:${userId}`, 3, 60_000)
+  if (!quota.allowed) throw new RateLimitError(quota.retryAfter)
   const config = readConfig()
   const validation = await validateJd(jd, config)
   if (!validation.allowed) {
@@ -175,21 +178,15 @@ export async function prepareApplication(
   await options.onProgress?.('Tailoring the CV…')
   let cvNote = 'The CV was kept as-is.'
   if (application.cv.hasDocx) {
-    try {
-      const stories = await listStories(userId)
-      cvNote = await tailorCv({
-        userId,
-        application,
-        jd: data,
-        company: research,
-        stories,
-        onProgress: options.onProgress,
-      })
-    } catch (error) {
-      cvNote = `The CV could not be tailored: ${
-        error instanceof Error ? error.message : 'unknown error'
-      }`
-    }
+    const stories = await listStories(userId)
+    cvNote = await tailorCv({
+      userId,
+      application,
+      jd: data,
+      company: research,
+      stories,
+      onProgress: options.onProgress,
+    })
   }
 
   await options.onProgress?.('Writing the cover letter…')
