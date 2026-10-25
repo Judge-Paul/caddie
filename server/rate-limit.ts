@@ -19,7 +19,7 @@ export class RateLimitError extends Error {
 export function consumeRateLimit(
   key: string,
   limit: number,
-  windowMs: number,
+  windowMs = 60_000,
   now = Date.now(),
 ) {
   const recent = (buckets.get(key) ?? []).filter((time) => now - time < windowMs)
@@ -57,6 +57,80 @@ export function userRateLimit(
       c.header('Retry-After', String(result.retryAfter))
       return c.json(
         { error: `Too many ${name} requests. Wait a moment and try again.` },
+        429,
+      )
+    }
+    await next()
+  })
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export function userDailyLimit(name: string, limit: number) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const session = c.get('session')
+    const result = consumeRateLimit(
+      `${name} day:${session.user.id}`,
+      limit,
+      DAY_MS,
+    )
+    if (!result.allowed) {
+      c.header('Retry-After', String(result.retryAfter))
+      return c.json(
+        { error: `Daily limit reached for ${name}. Try again tomorrow.` },
+        429,
+      )
+    }
+    await next()
+  })
+}
+
+export function deepCvReadLimit() {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    if (c.req.query('mode') !== 'deep') return next()
+    const session = c.get('session')
+    const minute = consumeRateLimit(`CV deep:${session.user.id}`, 2)
+    if (!minute.allowed) {
+      c.header('Retry-After', String(minute.retryAfter))
+      return c.json(
+        { error: 'Too many deep CV reads. Wait a moment and try again.' },
+        429,
+      )
+    }
+    const day = consumeRateLimit(`CV deep day:${session.user.id}`, 10, DAY_MS)
+    if (!day.allowed) {
+      c.header('Retry-After', String(day.retryAfter))
+      return c.json(
+        { error: 'Daily limit reached for deep CV reads. Try again tomorrow.' },
+        429,
+      )
+    }
+    await next()
+  })
+}
+
+function clientIp(c: { req: { header: (name: string) => string | undefined } }) {
+  const forwarded = c.req.header('x-forwarded-for')
+  const first = forwarded?.split(',')[0]?.trim()
+  return (
+    c.req.header('cf-connecting-ip')?.trim() ||
+    first ||
+    c.req.header('x-real-ip')?.trim() ||
+    'unknown'
+  )
+}
+
+export function previewRateLimit(limit = 30, windowMs = 60_000) {
+  return createMiddleware(async (c, next) => {
+    const result = consumeRateLimit(
+      `preview:${clientIp(c)}`,
+      limit,
+      windowMs,
+    )
+    if (!result.allowed) {
+      c.header('Retry-After', String(result.retryAfter))
+      return c.json(
+        { error: 'Too many preview requests. Wait a moment and try again.' },
         429,
       )
     }

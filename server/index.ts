@@ -86,7 +86,12 @@ import {
 } from './sending'
 import { sessionMiddleware, type AppEnv } from './session'
 import { validateJd } from './validate'
-import { userRateLimit } from './rate-limit'
+import {
+  deepCvReadLimit,
+  previewRateLimit,
+  userDailyLimit,
+  userRateLimit,
+} from './rate-limit'
 
 const MIN_JD_CHARS = 40
 const MAX_JD_CHARS = 40_000
@@ -144,11 +149,21 @@ app.use('/api/*', (c, next) => {
 app.use('/api/classify', userRateLimit('classification', 8))
 app.use('/api/research', userRateLimit('research', 6))
 app.use('/api/cv/classify', userRateLimit('CV read', 6))
+app.use('/api/cv/classify', deepCvReadLimit())
 app.use('/api/cv/plan', userRateLimit('CV plan', 3))
+app.use('/api/cv/plan', userDailyLimit('CV plan', 25))
+app.use('/api/cv/convert', userRateLimit('CV convert', 5))
+app.use('/api/cv/parse', userRateLimit('CV parse', 15))
+app.use('/api/cv/edit', userRateLimit('CV edit', 5))
 app.use('/api/cv/fit', userRateLimit('CV fit', 5))
 app.use('/api/applications/:id/compose', userRateLimit('draft generation', 4))
+app.use('/api/applications/:id/compose', userDailyLimit('draft generation', 30))
 app.use('/api/applications/:id/send', userRateLimit('email send', 5))
+app.use('/api/applications/:id/cover-letter.pdf', userRateLimit('cover-letter PDF', 10))
 app.use('/api/me/public-work', userRateLimit('public work read', 3))
+app.use('/api/me/cv*', userRateLimit('CV file', 20))
+app.use('/api/applications/:id/cv*', userRateLimit('application CV', 20))
+app.use('/api/preview/*', previewRateLimit())
 
 app.post('/api/classify', async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
