@@ -8,10 +8,14 @@ import {
   getApplication,
   getApplicationFile,
   getMe,
+  getPublicWork,
   listApplications,
+  listStories,
   saveBaseCv,
+  savePublicWork,
 } from '../account'
 import { extractPdfText } from '../cv/text'
+import { getSending } from '../sending'
 import { scoreRequirements } from '../../src/lib/match'
 import { sendApplication } from '../send'
 import { ingestCv } from '../cv/ingest'
@@ -454,13 +458,263 @@ async function handleList(ctx: Context, link: TelegramLinkDoc) {
 async function handleHelp(ctx: Context) {
   await ctx.reply(
     [
-      'I can prepare and send an email application from a job description.',
+      'I prepare and send email applications from job descriptions.',
       'Send a DOCX or PDF to set your base CV, then paste a posting.',
       'Say “looks good” to apply, or “apply automatically” to skip the preview.',
       '/auto on or /auto off controls automatic sending.',
       '/apps lists your applications, /status checks the current one.',
+      'Ask me about your CV, applications, drafts, links and experience.',
     ].join('\n'),
   )
+}
+
+function formatDay(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+}
+
+function profileUrl() {
+  return `${baseUrl()}/?view=profile`
+}
+
+type TelegramUser = {
+  id: string
+  name: string
+  email: string
+  image: string | null
+}
+
+async function scopeReply(ctx: Context) {
+  await ctx.reply(
+    [
+      'I only work on job applications here. Paste a posting and I will prepare it, send a CV document to save it as your base, or ask me about your CV, applications, drafts and links.',
+      'Useful commands: /apps, /status, /auto on or /auto off, /cancel. I cannot help with code, maths or general chat.',
+    ].join('\n\n'),
+  )
+}
+
+async function handleCvStatus(ctx: Context, link: TelegramLinkDoc, user: TelegramUser) {
+  const me = await getMe(link.userId, user)
+  if (!me.cv) {
+    await ctx.reply(
+      'No base CV saved yet. Send your CV as a DOCX or PDF document and I will save it to your Caddie account.',
+    )
+    return
+  }
+  await ctx.reply(
+    `Yes — ${me.cv.fileName} (${me.cv.kind.toUpperCase()}${me.cv.updatedAt ? `, saved ${formatDay(me.cv.updatedAt)}` : ''}). Send a new DOCX or PDF any time to replace it.`,
+  )
+}
+
+async function handleAccount(ctx: Context, link: TelegramLinkDoc, user: TelegramUser) {
+  const [me, sending] = await Promise.all([
+    getMe(link.userId, user),
+    getSending(link.userId),
+  ])
+  const sent = me.applications.filter((application) => application.sentAt).length
+  await ctx.reply(
+    [
+      `${user.name || user.email} (${user.email})`,
+      `CV: ${me.cv ? `${me.cv.fileName} (${me.cv.kind.toUpperCase()})` : 'none saved yet'}`,
+      `Applications: ${me.applications.length} (${sent} sent)`,
+      `Experience: ${me.stories.length} saved`,
+      sending.hasKey
+        ? `Sending: ${sending.email ?? 'address set'}${sending.verified ? `, verified${sending.domain ? ` on ${sending.domain}` : ''}` : ', not verified yet'}`
+        : 'Sending: not connected — add it under Sending in Profile',
+      `Auto-apply: ${me.telegram.autoApply ? 'on' : 'off'}`,
+    ].join('\n'),
+  )
+}
+
+async function handleExperience(ctx: Context, link: TelegramLinkDoc, query: string) {
+  const stories = await listStories(link.userId)
+  if (stories.length === 0) {
+    await ctx.reply(
+      `No experience saved yet. Add it under Experience in Profile: ${profileUrl()}`,
+    )
+    return
+  }
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((term) => term.length >= 4)
+  if (terms.length === 0) {
+    const names = stories
+      .slice(0, 5)
+      .map((story) => story.title || 'Experience')
+      .join(', ')
+    await ctx.reply(
+      `You have ${stories.length} saved: ${names}${stories.length > 5 ? ', and more' : ''}. Ask about any of them.`,
+    )
+    return
+  }
+  const matches = stories
+    .map((story) => {
+      const haystack =
+        `${story.title ?? ''} ${story.company ?? ''} ${story.userText} ${story.skills.join(' ')}`.toLowerCase()
+      const score = terms.reduce(
+        (total, term) => (haystack.includes(term) ? total + 1 : total),
+        0,
+      )
+      return { story, score }
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3)
+  if (matches.length === 0) {
+    await ctx.reply(
+      'Nothing saved about that yet. Ask about something on your CV, or add it under Experience in Profile.',
+    )
+    return
+  }
+  await ctx.reply(
+    matches
+      .map(
+        ({ story }) =>
+          `• ${[story.title || 'Experience', story.company].filter(Boolean).join(' at ')}: ${story.userText.slice(0, 280)}`,
+      )
+      .join('\n\n'),
+  )
+}
+
+async function handleDrafts(ctx: Context, link: TelegramLinkDoc, chatId: string) {
+  const session = await sessionFor(link, chatId)
+  if (!session?.activeApplicationId) {
+    await ctx.reply(
+      'There is no application in progress. /apps lists yours — open one there first, or paste a posting to start one.',
+    )
+    return
+  }
+  const application = await getApplication(link.userId, session.activeApplicationId)
+  await ctx.reply(
+    [
+      appName(application),
+      `Letter: ${application.coverLetter?.text.trim() ? 'drafted' : 'not started yet'}`,
+      application.emailDraft?.subject || application.emailDraft?.body
+        ? `Email: drafted${application.emailDraft.to ? ` to ${application.emailDraft.to}` : ''}`
+        : 'Email: not started yet',
+      application.sentAt
+        ? 'Sent.'
+        : application.completedAt
+          ? 'Marked done.'
+          : 'Not sent.',
+    ].join('\n'),
+    {
+      reply_markup: linksKeyboard(
+        link.userId,
+        application.id,
+        Boolean(application.coverLetter?.text.trim()),
+      ),
+    },
+  )
+}
+
+async function handleLinksStatus(ctx: Context, link: TelegramLinkDoc) {
+  const publicWork = await getPublicWork(link.userId)
+  const sources = [publicWork.website, publicWork.github].flatMap((source) =>
+    source ? [source] : [],
+  )
+  if (sources.length === 0) {
+    await ctx.reply(
+      'No links saved. Send me your website or GitHub URL — for example github.com/you — and I will read what is public.',
+    )
+    return
+  }
+  await ctx.reply(
+    sources
+      .map((source) => {
+        const kind = source.kind === 'github' ? 'GitHub' : 'Website'
+        const head = `${kind}: ${source.url}`
+        if (source.error) return `${head}\nCould not read it: ${source.error}`
+        const read = source.readAt ? `Read ${formatDay(source.readAt)}` : 'Saved, not read yet'
+        const summary = [source.headline, source.summary]
+          .filter(Boolean)
+          .join(' — ')
+          .slice(0, 200)
+        const projects = source.projects
+          .slice(0, 3)
+          .map((project) => project.name)
+          .join(', ')
+        return [head, read, summary, projects ? `Projects: ${projects}` : '']
+          .filter(Boolean)
+          .join('\n')
+      })
+      .join('\n\n'),
+  )
+}
+
+async function handleSetLinks(
+  ctx: Context,
+  link: TelegramLinkDoc,
+  website: string | null,
+  github: string | null,
+) {
+  const quota = consumeRateLimit(`telegram-links:${link.userId}`, 3, 60_000)
+  if (!quota.allowed) {
+    await ctx.reply(
+      `Too many link updates. Wait ${quota.retryAfter} seconds and try again.`,
+    )
+    return
+  }
+  const current = await getPublicWork(link.userId)
+  const next = {
+    website: website ?? current.website?.url ?? null,
+    github: github ?? current.github?.url ?? null,
+  }
+  if (!next.website && !next.github) {
+    await ctx.reply(
+      'Send me a website or GitHub URL and I will save and read it — for example github.com/you.',
+    )
+    return
+  }
+  await ctx.reply('Reading your links…')
+  try {
+    const publicWork = await savePublicWork(link.userId, next)
+    const parts = [publicWork.website, publicWork.github]
+      .flatMap((source) => (source ? [source] : []))
+      .map((source) => {
+        const kind = source.kind === 'github' ? 'GitHub' : 'Website'
+        if (source.error) return `${kind}: saved, but reading failed — ${source.error}`
+        const count = source.projects.length
+        return `${kind}: ${count} project${count === 1 ? '' : 's'} read.`
+      })
+    await ctx.reply([next.website && next.github ? 'Saved both links.' : 'Saved.', ...parts].join('\n'))
+  } catch (error) {
+    await ctx.reply(
+      error instanceof Error ? error.message : 'Those links could not be saved.',
+    )
+  }
+}
+
+async function handleWebsiteOnly(
+  ctx: Context,
+  action: 'credentials' | 'delete' | 'settings' | 'other',
+  topic: string,
+) {
+  const url = profileUrl()
+  if (action === 'credentials') {
+    await ctx.reply(
+      `I never take keys here, so please do not paste them in chat. Add your Resend key under Sending in Profile: ${url}`,
+    )
+    return
+  }
+  if (/cv|resume/.test(topic)) {
+    await ctx.reply(
+      `To remove your CV, do it under CV in Profile: ${url}\nTo replace it, just send a new DOCX or PDF document here.`,
+    )
+    return
+  }
+  if (action === 'delete') {
+    await ctx.reply(`I do not delete things from chat. Do that on the website: ${url}`)
+    return
+  }
+  await ctx.reply(`That change happens on the website: ${url}`)
 }
 
 export function createTelegramBot(token: string) {
@@ -686,6 +940,46 @@ export function createTelegramBot(token: string) {
       return
     }
 
+    if (intent.type === 'cv_status') {
+      await handleCvStatus(ctx, link, user)
+      return
+    }
+
+    if (intent.type === 'account') {
+      await handleAccount(ctx, link, user)
+      return
+    }
+
+    if (intent.type === 'experience') {
+      await handleExperience(ctx, link, intent.query)
+      return
+    }
+
+    if (intent.type === 'drafts') {
+      await handleDrafts(ctx, link, chatId)
+      return
+    }
+
+    if (intent.type === 'links_status') {
+      await handleLinksStatus(ctx, link)
+      return
+    }
+
+    if (intent.type === 'set_links') {
+      await handleSetLinks(ctx, link, intent.website, intent.github)
+      return
+    }
+
+    if (intent.type === 'website_only') {
+      await handleWebsiteOnly(ctx, intent.action, intent.topic)
+      return
+    }
+
+    if (intent.type === 'out_of_scope') {
+      await scopeReply(ctx)
+      return
+    }
+
     if (intent.type === 'help') {
       await handleHelp(ctx)
       return
@@ -696,9 +990,7 @@ export function createTelegramBot(token: string) {
       return
     }
 
-    await ctx.reply(
-      'I can prepare an application from a pasted job description, save a CV document, list applications, or apply a prepared one. What would you like to do?',
-    )
+    await scopeReply(ctx)
   })
 
   bot.on('callback_query:data', async (ctx) => {
