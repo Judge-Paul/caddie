@@ -13,13 +13,15 @@ completion state together, and both documents stay downloadable.
 
 Requirements: Bun, Node for the frontend tooling, LibreOffice (`soffice`) for
 DOCX rendering, poppler (`pdfinfo`/`pdftotext`) for the fit assistant and draft
-grounding, and MongoDB (Atlas or the local Docker container below).
+grounding, MongoDB (Atlas or the local Docker container below), and a private
+Cloudflare R2 bucket for CV files.
 
 ```bash
 npm install
 cp .env.example .env.local
 # Fill in CF_ACCOUNT_ID, CF_API_KEY, BROWSERBASE_API_KEY,
-# MONGODB_URI, BETTER_AUTH_SECRET, BETTER_AUTH_URL and APP_ENCRYPTION_KEY.
+# MONGODB_URI, BETTER_AUTH_SECRET, BETTER_AUTH_URL, APP_ENCRYPTION_KEY
+# and R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET.
 npm run dev
 ```
 
@@ -32,7 +34,10 @@ docker run -d --name caddie-mongo -p 127.0.0.1:27017:27017 \
 
 Set `MONGODB_URI=mongodb://127.0.0.1:27017/caddie` (or use an Atlas connection
 string). Generate `BETTER_AUTH_SECRET` and `APP_ENCRYPTION_KEY` with
-`openssl rand -base64 32`.
+`openssl rand -base64 32`. Create a private R2 bucket and an R2 API token with
+Object Read & Write; put its account ID, access key, secret and bucket in
+`.env.local`. Legacy GridFS files remain readable; move them with
+`npm run migrate:r2` once R2 is configured.
 
 Google sign-in is the only auth path. In Google Cloud Console → APIs & Services
 → Credentials, add this Authorized redirect URI:
@@ -92,10 +97,10 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 - **Downloads** — the tailored CV is downloadable as its application PDF, and
   the cover letter is rendered server-side to a PDF. Both downloads work after
   the application is locked.
-- **Your CV** — upload a DOCX or PDF. The file and its rendered PDF live in your
-  account (MongoDB GridFS). A DOCX keeps its fonts and can be tailored; a PDF is
-  read-only. Replacing the base CV does not rewrite existing application
-  snapshots.
+- **Your CV** — upload a DOCX or PDF. The file and its rendered PDF live as
+  private objects in your Cloudflare R2 bucket, with their keys in your account.
+  A DOCX keeps its fonts and can be tailored; a PDF is read-only. Replacing the
+  base CV does not rewrite existing application snapshots.
 - **Matching** — `src/lib/match.ts` scores the classified must-haves against the
   CV text. Single-word terms use the CV vocabulary, multi-word terms must appear
   as a phrase, and either-or groups are covered by any alternative. Missing
@@ -125,13 +130,14 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 
 ## Privacy
 
-Your CV, applications, experiences and sending settings are stored in your
-account (MongoDB). Caddie sends the posting text to Cloudflare Workers AI for
-classification, and the CV/JD/experiences to Gemma when you draft a cover letter
+Your CV files are stored in private Cloudflare R2 objects; their metadata,
+applications, experiences and sending settings are stored in MongoDB. Caddie
+sends the posting text to Cloudflare Workers AI for classification, and the
+CV/JD/experiences to Gemma when you draft a cover letter
 or email or use the CV planner. Company research sends only the company name,
 role fields and a one-line summary to Browserbase, never the CV. When you send an
 application, Resend receives the from and to addresses, the email text and, when
-attached, the CV PDF. The Resend key is encrypted at rest with
+attached, the CV PDF read from R2. The Resend key is encrypted at rest with
 `APP_ENCRYPTION_KEY`; only its last four characters are returned to the browser.
 Matching stays in the browser.
 

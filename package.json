@@ -11,9 +11,11 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "api": "bun server/index.ts",
-    "eval": "bun eval/run.ts"
+    "eval": "bun eval/run.ts",
+    "migrate:r2": "bun server/migrate-r2.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1156.0",
     "@base-ui/react": "^1.9.0",
     "@better-auth/infra": "^0.4.22",
     "@better-auth/mongo-adapter": "^1.7.12",

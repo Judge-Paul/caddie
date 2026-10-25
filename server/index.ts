@@ -55,6 +55,7 @@ import { ConfigError, configSummary, readConfig } from './env'
 import { BrowserbaseError } from './research/browserbase'
 import { researchCompany } from './research'
 import { sendApplication } from './send'
+import { StorageError, storageConfigured } from './storage'
 import {
   deleteSending,
   deleteSendingKey,
@@ -80,6 +81,7 @@ app.get('/api/health', (c) =>
       database: Boolean(process.env.MONGODB_URI?.trim()),
       baseURL: authBaseUrl(),
     },
+    storage: { configured: storageConfigured() },
   }),
 )
 
@@ -227,6 +229,9 @@ function cvFailure(c: Context, error: unknown) {
   }
   if (error instanceof SecretError) {
     return c.json({ error: error.message }, 503)
+  }
+  if (error instanceof StorageError) {
+    return c.json({ error: error.message }, error.status)
   }
   if (error instanceof ConfigError) {
     return c.json({ error: error.message }, 503)

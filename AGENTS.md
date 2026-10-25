@@ -21,8 +21,9 @@ behave, so the product stays coherent no matter which agent works on it next.
 - Bun + Hono for the classifier API (`server/`), calling Cloudflare Workers AI
   (Gemma for extraction, Clef-flash as the paste guard)
 - Browserbase Search + Fetch for company research, extracted against a JSON schema
-- Better Auth (Google-only) with MongoDB + GridFS for accounts, base CVs,
-  per-application CV snapshots and the managed experience library
+- Better Auth (Google-only) with MongoDB for accounts and metadata, and
+  Cloudflare R2 for base CVs and per-application CV snapshots. Legacy GridFS
+  files remain readable until the R2 migration is run
 - Resend for per-user email sending; the API key is encrypted at rest with a
   server key and is never returned to the browser
 - `shared/jd-classification.ts` is the classification contract shared by the
@@ -44,7 +45,8 @@ and fill in `CF_ACCOUNT_ID` and `CF_API_KEY`; never prefix them with `VITE_`.
 Company research additionally needs `BROWSERBASE_API_KEY`. Accounts need
 `MONGODB_URI`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, the Google client keys
 and `APP_ENCRYPTION_KEY` (32 bytes, base64) for encrypting per-user Resend keys.
-The Google Authorized redirect URI is
+CV files need `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
+`R2_BUCKET` (optional `R2_ENDPOINT`). The Google Authorized redirect URI is
 `${BETTER_AUTH_URL}/api/auth/callback/google`; for local dev that is
 `http://localhost:5173/api/auth/callback/google`. `BETTER_AUTH_API_KEY` belongs
 to `@better-auth/infra` and is not required for auth.
@@ -138,7 +140,8 @@ entrance animations on load, no bouncing.
 - **A DOCX is rendered to PDF server-side** by LibreOffice, then shown through
   the same viewer. Margins, styles, tables and installed fonts come from the
   renderer; a font missing on the server is substituted. The source DOCX and the
-  rendered PDF are stored in the user's account (GridFS), not IndexedDB.
+  rendered PDF are stored in the user's account (private R2, with legacy GridFS
+  readable during migration), not IndexedDB.
 - The paper is read-only in the UI. Text changes happen only through the DOCX
   edit API; do not add editable affordances to the rendered paper.
 
@@ -151,11 +154,12 @@ entrance animations on load, no bouncing.
 - The dashboard lists applications in a table and creates one from a pasted
   posting. The workspace is scoped to that application. **Profile** holds the
   base CV, the experience library and the sending identity.
-- **Base CV files live in GridFS** (`cvFiles`, one copy per user). Creating an
-  application copies the base CV so later replacing the profile CV does not
-  rewrite old applications. Each application stores its own DOCX/PDF snapshot
-  and a `draft | classified | customized` status plus `sentAt`/`sentTo` and
-  `completedAt`.
+- **Base CV files live in private Cloudflare R2**, with Mongo storing the
+  object keys. Creating an application copies the base CV object so later
+  replacing the profile CV does not rewrite old applications. Each application
+  stores its own DOCX/PDF snapshot and a `draft | classified | customized`
+  status plus `sentAt`/`sentTo` and `completedAt`. Legacy GridFS files are
+  readable through the storage fallback until `npm run migrate:r2` is run.
 - An application stores the JD text, the normalised JD classification, title,
   company, dates, CV snapshot, cover letter and email draft. That classification
   is reused when the app is opened, so the workspace does not re-read an
@@ -190,7 +194,7 @@ entrance animations on load, no bouncing.
   name the role/company, lead with the hero evidence, avoid generic application
   openers and use at most two metrics and two technologies.
 - **Generation is explicit and not cached.** `POST /api/applications/:id/compose`
-  takes `{ kind: "cover-letter" | "email" }`, reads the CV PDF from GridFS, the
+  takes `{ kind: "cover-letter" | "email" }`, reads the CV PDF from R2, the
   stored classification and the user's experiences, then returns the updated
   application. Regeneration replaces the current text; the UI confirms first.
 - **Sending is per-user Resend.** Profile stores a saved sending connection:
@@ -208,7 +212,7 @@ entrance animations on load, no bouncing.
   recipient and is labelled "From posting." It is a hint, not a lock; the user
   can edit it.
 - **`POST /api/applications/:id/send`** requires a connected Resend identity. It
-  saves the email draft, attaches the application PDF from GridFS, sends through
+  saves the email draft, attaches the application PDF from R2, sends through
   Resend, and records `sentAt`/`sentTo`. Sending is never automatic; the UI
   confirms recipient, subject and attachment first.
 - **`POST /api/applications/:id/complete`** marks an application complete without
@@ -317,7 +321,7 @@ DOCX is the editable source; the PDF is a rendering of it.
   title inside a line that also holds dates); omitting it replaces the whole
   block. The first affected run keeps its `w:rPr`, so the same font, size and
   weight survive; the rest of the paragraph is left intact. Application edits
-  are saved back to GridFS through `PUT /api/applications/:id/cv`.
+  are saved back to R2 through `PUT /api/applications/:id/cv`.
 - `POST /api/cv/convert` returns a PDF, `POST /api/cv/parse` returns blocks,
   `POST /api/cv/edit` returns edited DOCX + PDF + blocks as base64, and
   `POST /api/cv/classify` returns the structured CV. All are authenticated.
@@ -339,7 +343,7 @@ DOCX is the editable source; the PDF is a rendering of it.
   with a 120s timeout for unusual layouts. The assistant exposes it as a
   **Deep read** action; never run it automatically.
 - CV classification is not cached. The extracted CV is personal data: the
-  DOCX/PDF lives in the user's account (GridFS), while the classification is
+  DOCX/PDF lives in the user's account (R2), while the classification is
   computed per request and returned. The block text is sent to Cloudflare (Clef,
   or Gemma for a deep read), like the posting; the CV is never sent to
   Browserbase.
@@ -438,9 +442,9 @@ CV measurement, and look at 1440px and 390px widths.
 
 ## Status
 
-Built: Google-only accounts through Better Auth, a MongoDB/GridFS account store,
-an applications table, a per-application workbench with Overview/CV/Cover
-letter/Email tabs, a profile with the base CV, experience library and a saved
+Built: Google-only accounts through Better Auth, a MongoDB metadata store and
+private R2 CV storage (with legacy GridFS reads), an applications table, a
+per-application workbench with Overview/CV/Cover letter/Email tabs, a profile with the base CV, experience library and a saved
 sending identity, cover letter and email generation, application-email detection,
 per-user Resend sending with an encrypted key, application completion/locking,
 CV and cover-letter PDF downloads, base CV upload, per-application CV snapshots,
@@ -452,8 +456,9 @@ API, company research through Browserbase, and an eval harness.
 Not built yet: structural insertion/removal, profile NLP intake, confirmed
 project/product entries, hero-project cover-letter openings, browser lookup of
 unknown projects, direct text editing on the paper, role-title rewrites, a job
-library, or per-line/section analysis. Matching is client-side; accounts, CV files,
-applications, experiences and sending settings persist in MongoDB. The CV and
-experiences are sent to Cloudflare only for the features the user invokes, and
+library, or per-line/section analysis. Matching is client-side; account and
+application metadata, experiences and sending settings persist in MongoDB, while
+CV files persist as private R2 objects. The CV and experiences are sent to
+Cloudflare only for the features the user invokes, and
 Resend receives the email and CV PDF only when the user sends. Don't imply
 anything else persists.

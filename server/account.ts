@@ -18,6 +18,14 @@ import {
   type ClassificationResult,
 } from '../shared/jd-classification'
 import { mongo, type MongoContext } from './mongo'
+import {
+  applicationCvKey,
+  baseCvKey,
+  copyObject,
+  deleteObject,
+  getObject,
+  putObject,
+} from './storage'
 
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -36,8 +44,10 @@ export class AccountError extends Error {
 type StoredCv = {
   kind: AccountCvKind
   fileName: string
-  docxFileId: ObjectId | null
-  pdfFileId: ObjectId
+  docxKey?: string | null
+  pdfKey?: string | null
+  docxFileId?: ObjectId | null
+  pdfFileId?: ObjectId | null
   updatedAt: Date
 }
 
@@ -114,10 +124,31 @@ function cvDto(cv: StoredCv): AccountCv {
   return {
     kind: cv.kind,
     fileName: cv.fileName,
-    hasDocx: Boolean(cv.docxFileId),
-    hasPdf: Boolean(cv.pdfFileId),
+    hasDocx: Boolean(cv.docxKey || cv.docxFileId),
+    hasPdf: Boolean(cv.pdfKey || cv.pdfFileId),
     updatedAt: cv.updatedAt.toISOString(),
   }
+}
+
+async function readStoredFile(
+  store: MongoContext,
+  cv: StoredCv,
+  kind: AccountCvKind,
+) {
+  const key = kind === 'docx' ? cv.docxKey : cv.pdfKey
+  if (key) return getObject(key)
+
+  const legacyId = kind === 'docx' ? cv.docxFileId : cv.pdfFileId
+  if (legacyId) return downloadBuffer(store, legacyId)
+  return null
+}
+
+async function removeStoredFiles(store: MongoContext, cv: StoredCv | null) {
+  if (!cv) return
+  if (cv.docxKey) await deleteObject(cv.docxKey)
+  if (cv.pdfKey) await deleteObject(cv.pdfKey)
+  await deleteFile(store, cv.docxFileId ?? null)
+  await deleteFile(store, cv.pdfFileId ?? null)
 }
 
 function summary(doc: ApplicationDoc): ApplicationSummary {
@@ -147,23 +178,6 @@ function detail(doc: ApplicationDoc): ApplicationDetail {
   }
 }
 
-function uploadBuffer(
-  store: MongoContext,
-  buffer: Uint8Array,
-  fileName: string,
-  contentType: string,
-  metadata: Record<string, unknown>,
-): Promise<ObjectId> {
-  return new Promise((resolve, reject) => {
-    const stream = store.files.openUploadStream(fileName, {
-      metadata: { ...metadata, contentType },
-    })
-    stream.once('error', reject)
-    stream.once('finish', () => resolve(stream.id as ObjectId))
-    stream.end(Buffer.from(buffer))
-  })
-}
-
 async function downloadBuffer(store: MongoContext, id: ObjectId) {
   const chunks: Buffer[] = []
   for await (const chunk of store.files.openDownloadStream(id)) {
@@ -175,17 +189,6 @@ async function downloadBuffer(store: MongoContext, id: ObjectId) {
 async function deleteFile(store: MongoContext, id: ObjectId | null) {
   if (!id) return
   await store.files.delete(id).catch(() => {})
-}
-
-async function copyFile(
-  store: MongoContext,
-  id: ObjectId,
-  fileName: string,
-  contentType: string,
-  metadata: Record<string, unknown>,
-) {
-  const buffer = await downloadBuffer(store, id)
-  return uploadBuffer(store, buffer, fileName, contentType, metadata)
 }
 
 async function profileOf(userId: string) {
@@ -233,52 +236,46 @@ export async function saveBaseCv(
   const store = requireMongo()
   const previous = await profileOf(userId)
   const fileName = cleanFileName(input.fileName, input.kind)
-
-  let docxFileId: ObjectId | null = null
-  let pdfFileId: ObjectId
+  const docxKey =
+    input.kind === 'docx' ? baseCvKey(userId, 'docx') : null
+  const pdfKey = baseCvKey(userId, 'pdf')
 
   try {
     if (input.kind === 'docx') {
       if (!input.docx) throw new AccountError('The DOCX source is missing.', 400)
-      docxFileId = await uploadBuffer(store, input.docx, fileName, DOCX_MIME, {
-        userId,
-        kind: 'docx',
-      })
+      await putObject(docxKey!, input.docx, DOCX_MIME)
     }
-    pdfFileId = await uploadBuffer(
-      store,
-      input.pdf,
-      pdfName(fileName),
-      PDF_MIME,
-      { userId, kind: 'pdf' },
-    )
+    await putObject(pdfKey, input.pdf, PDF_MIME)
   } catch (error) {
-    await deleteFile(store, docxFileId)
+    if (docxKey) await deleteObject(docxKey)
+    await deleteObject(pdfKey)
     throw error
   }
 
   const cv: StoredCv = {
     kind: input.kind,
     fileName,
-    docxFileId,
-    pdfFileId,
+    docxKey,
+    pdfKey,
     updatedAt: new Date(),
   }
 
-  await store.db.collection<ProfileDoc>('profiles').updateOne(
-    { userId },
-    {
-      $set: { cv, updatedAt: new Date() },
-      $setOnInsert: { createdAt: new Date() },
-    },
-    { upsert: true },
-  )
-
-  if (previous?.cv) {
-    await deleteFile(store, previous.cv.docxFileId)
-    await deleteFile(store, previous.cv.pdfFileId)
+  try {
+    await store.db.collection<ProfileDoc>('profiles').updateOne(
+      { userId },
+      {
+        $set: { cv, updatedAt: new Date() },
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true },
+    )
+  } catch (error) {
+    if (docxKey) await deleteObject(docxKey)
+    await deleteObject(pdfKey)
+    throw error
   }
 
+  await removeStoredFiles(store, previous?.cv ?? null)
   return cvDto(cv)
 }
 
@@ -287,11 +284,11 @@ export async function getBaseFile(userId: string, kind: AccountCvKind) {
   const profile = await profileOf(userId)
   if (!profile?.cv) return null
 
-  const id = kind === 'docx' ? profile.cv.docxFileId : profile.cv.pdfFileId
-  if (!id) return null
+  const buffer = await readStoredFile(store, profile.cv, kind)
+  if (!buffer) return null
 
   return {
-    buffer: await downloadBuffer(store, id),
+    buffer,
     fileName:
       kind === 'docx' ? profile.cv.fileName : pdfName(profile.cv.fileName),
     contentType: kind === 'docx' ? DOCX_MIME : PDF_MIME,
@@ -301,10 +298,7 @@ export async function getBaseFile(userId: string, kind: AccountCvKind) {
 export async function deleteBaseCv(userId: string) {
   const store = requireMongo()
   const profile = await profileOf(userId)
-  if (profile?.cv) {
-    await deleteFile(store, profile.cv.docxFileId)
-    await deleteFile(store, profile.cv.pdfFileId)
-  }
+  if (profile?.cv) await removeStoredFiles(store, profile.cv)
   await store.db
     .collection<ProfileDoc>('profiles')
     .updateOne({ userId }, { $set: { cv: null, updatedAt: new Date() } })
@@ -316,28 +310,42 @@ async function copyBaseCv(
   base: StoredCv,
   applicationId: ObjectId,
 ) {
-  let docxFileId: ObjectId | null = null
+  const appId = applicationId.toHexString()
+  const docxKey =
+    base.docxKey || base.docxFileId
+      ? applicationCvKey(userId, appId, 'docx')
+      : null
+  const pdfKey = applicationCvKey(userId, appId, 'pdf')
 
   try {
-    if (base.docxFileId) {
-      docxFileId = await copyFile(
-        store,
-        base.docxFileId,
-        base.fileName,
-        DOCX_MIME,
-        { userId, applicationId: applicationId.toHexString(), kind: 'docx' },
-      )
+    if (docxKey) {
+      if (base.docxKey) {
+        await copyObject(base.docxKey, docxKey)
+      } else if (base.docxFileId) {
+        await putObject(
+          docxKey,
+          await downloadBuffer(store, base.docxFileId),
+          DOCX_MIME,
+        )
+      }
     }
-    const pdfFileId = await copyFile(
-      store,
-      base.pdfFileId,
-      pdfName(base.fileName),
-      PDF_MIME,
-      { userId, applicationId: applicationId.toHexString(), kind: 'pdf' },
-    )
-    return { docxFileId, pdfFileId }
+
+    if (base.pdfKey) {
+      await copyObject(base.pdfKey, pdfKey)
+    } else if (base.pdfFileId) {
+      await putObject(
+        pdfKey,
+        await downloadBuffer(store, base.pdfFileId),
+        PDF_MIME,
+      )
+    } else {
+      throw new AccountError('The base CV has no PDF.', 409)
+    }
+
+    return { docxKey, pdfKey }
   } catch (error) {
-    await deleteFile(store, docxFileId)
+    if (docxKey) await deleteObject(docxKey)
+    await deleteObject(pdfKey)
     throw error
   }
 }
@@ -354,8 +362,8 @@ export async function createApplication(userId: string, jdText: string) {
   const cv: StoredCv = {
     kind: profile.cv.kind,
     fileName: profile.cv.fileName,
-    docxFileId: copied.docxFileId,
-    pdfFileId: copied.pdfFileId,
+    docxKey: copied.docxKey,
+    pdfKey: copied.pdfKey,
     updatedAt: now,
   }
 
@@ -377,7 +385,12 @@ export async function createApplication(userId: string, jdText: string) {
     updatedAt: now,
   }
 
-  await store.db.collection<ApplicationDoc>('applications').insertOne(doc)
+  try {
+    await store.db.collection<ApplicationDoc>('applications').insertOne(doc)
+  } catch (error) {
+    await removeStoredFiles(store, cv)
+    throw error
+  }
   return detail(doc)
 }
 
@@ -598,50 +611,54 @@ export async function saveApplicationCv(
     )
   }
   if (current.cv.kind !== 'docx') {
-    throw new AccountError('Upload a DOCX base CV to customize this application.', 409)
+    throw new AccountError(
+      'Upload a DOCX base CV to customize this application.',
+      409,
+    )
   }
 
-  const docxFileId = await uploadBuffer(
-    store,
-    input.docx,
-    current.cv.fileName,
-    DOCX_MIME,
-    { userId, applicationId: id, kind: 'docx' },
-  )
+  const docxKey = applicationCvKey(userId, id, 'docx')
+  const pdfKey = applicationCvKey(userId, id, 'pdf')
 
-  let pdfFileId: ObjectId
   try {
-    pdfFileId = await uploadBuffer(
-      store,
-      input.pdf,
-      pdfName(current.cv.fileName),
-      PDF_MIME,
-      { userId, applicationId: id, kind: 'pdf' },
-    )
+    await putObject(docxKey, input.docx, DOCX_MIME)
+    await putObject(pdfKey, input.pdf, PDF_MIME)
   } catch (error) {
-    await deleteFile(store, docxFileId)
+    await deleteObject(docxKey)
+    await deleteObject(pdfKey)
     throw error
   }
 
   const now = new Date()
   const cv: StoredCv = {
-    ...current.cv,
-    docxFileId,
-    pdfFileId,
+    kind: current.cv.kind,
+    fileName: current.cv.fileName,
+    docxKey,
+    pdfKey,
     updatedAt: now,
   }
 
-  const updated = await store.db
-    .collection<ApplicationDoc>('applications')
-    .findOneAndUpdate(
-      { _id, userId },
-      { $set: { cv, status: 'customized', updatedAt: now } },
-      { returnDocument: 'after' },
-    )
-  if (!updated) throw new AccountError('Application not found.', 404)
+  let updated
+  try {
+    updated = await store.db
+      .collection<ApplicationDoc>('applications')
+      .findOneAndUpdate(
+        { _id, userId },
+        { $set: { cv, status: 'customized', updatedAt: now } },
+        { returnDocument: 'after' },
+      )
+  } catch (error) {
+    await deleteObject(docxKey)
+    await deleteObject(pdfKey)
+    throw error
+  }
+  if (!updated) {
+    await deleteObject(docxKey)
+    await deleteObject(pdfKey)
+    throw new AccountError('Application not found.', 404)
+  }
 
-  await deleteFile(store, current.cv.docxFileId)
-  await deleteFile(store, current.cv.pdfFileId)
+  await removeStoredFiles(store, current.cv)
   return detail(updated)
 }
 
@@ -656,11 +673,11 @@ export async function getApplicationFile(
     .findOne({ _id: objectId(id), userId })
   if (!doc) throw new AccountError('Application not found.', 404)
 
-  const fileId = kind === 'docx' ? doc.cv.docxFileId : doc.cv.pdfFileId
-  if (!fileId) throw new AccountError('That file is not available.', 404)
+  const buffer = await readStoredFile(store, doc.cv, kind)
+  if (!buffer) throw new AccountError('That file is not available.', 404)
 
   return {
-    buffer: await downloadBuffer(store, fileId),
+    buffer,
     fileName:
       kind === 'docx' ? doc.cv.fileName : pdfName(doc.cv.fileName),
     contentType: kind === 'docx' ? DOCX_MIME : PDF_MIME,
@@ -676,8 +693,7 @@ export async function deleteApplication(userId: string, id: string) {
   if (!doc) throw new AccountError('Application not found.', 404)
 
   await store.db.collection<ApplicationDoc>('applications').deleteOne({ _id, userId })
-  await deleteFile(store, doc.cv.docxFileId)
-  await deleteFile(store, doc.cv.pdfFileId)
+  await removeStoredFiles(store, doc.cv)
 }
 
 export async function listStories(userId: string) {
