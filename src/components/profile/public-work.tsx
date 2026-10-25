@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { AccountMe, PublicWorkSource } from '@shared/account'
 import {
   AlertCircle,
-  Check,
   ExternalLink,
   GitFork,
   Globe2,
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Eyebrow, Notice } from '@/components/ui/section'
 import { Input } from '@/components/ui/input'
 import { savePublicWork } from '@/lib/account'
 
@@ -23,14 +23,6 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 function formatDate(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : dateFormat.format(date)
-}
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-      {children}
-    </p>
-  )
 }
 
 function SourceIcon({ kind }: { kind: PublicWorkSource['kind'] }) {
@@ -174,9 +166,12 @@ function SourceCard({ source }: { source: PublicWorkSource }) {
 export function PublicWork({
   me,
   onRefreshMe,
+  bare = false,
 }: {
   me: AccountMe
   onRefreshMe: () => Promise<void>
+  /** Render inside a parent card instead of a standalone section. */
+  bare?: boolean
 }) {
   const [website, setWebsite] = useState(me.publicWork.website?.url ?? '')
   const [github, setGithub] = useState(me.publicWork.github?.url ?? '')
@@ -238,11 +233,11 @@ export function PublicWork({
     }
   }
 
-  return (
-    <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <SectionLabel>Public work</SectionLabel>
+          <Eyebrow>{bare ? 'Links' : 'Public work'}</Eyebrow>
           <p className="mt-1 max-w-[52ch] text-[11.5px] leading-[1.45] text-muted-foreground">
             Add your site and GitHub so Caddie can find project evidence for
             drafts. Only public pages are read.
@@ -313,22 +308,12 @@ export function PublicWork({
         </div>
       </div>
 
-      {notice || error ? (
-        <p
-          role={error ? 'alert' : 'status'}
-          className={`mt-3 flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] leading-[1.45] ${
-            error
-              ? 'border-border/70 bg-muted/40 text-muted-foreground'
-              : 'border-success/20 bg-success/5 text-success'
-          }`}
-        >
-          {error ? (
-            <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-          ) : (
-            <Check className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-          )}
-          {error || notice}
-        </p>
+      {error ? (
+        <Notice className="mt-3">{error}</Notice>
+      ) : notice ? (
+        <Notice tone="success" className="mt-3">
+          {notice}
+        </Notice>
       ) : null}
 
       {sources.length > 0 ? (
@@ -339,13 +324,21 @@ export function PublicWork({
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/15 px-4 py-4">
-          <p className="text-[11.5px] font-medium text-ink">No public work added yet.</p>
+          <p className="text-[11.5px] font-medium text-ink">No links added yet.</p>
           <p className="mt-1 max-w-[48ch] text-[10.5px] leading-[1.45] text-muted-foreground">
             A portfolio or GitHub profile gives Caddie more concrete projects to
             draw on. You can still add experiences by hand.
           </p>
         </div>
       )}
+    </>
+  )
+
+  if (bare) return body
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+      {body}
     </section>
   )
 }

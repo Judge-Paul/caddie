@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { PublicWork } from '@/components/profile/public-work'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Eyebrow, Notice } from '@/components/ui/section'
 import { Input } from '@/components/ui/input'
 import {
   deleteSending,
@@ -16,7 +17,6 @@ import type { AccountMe } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
 import {
   AlertCircle,
-  Check,
   ExternalLink,
   FileText,
   KeyRound,
@@ -68,14 +68,6 @@ function parseSkills(value: string) {
       return true
     })
     .slice(0, 12)
-}
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-      {children}
-    </p>
-  )
 }
 
 function ExperienceDialog({
@@ -166,7 +158,7 @@ function ExperienceDialog({
         >
           <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
             <div>
-              <SectionLabel>{story ? 'Edit experience' : 'Add experience'}</SectionLabel>
+              <Eyebrow>{story ? 'Edit experience' : 'Add experience'}</Eyebrow>
               <h2 className="mt-1 text-[16px] leading-none font-semibold tracking-[-0.015em] text-ink">
                 What did you work on?
               </h2>
@@ -451,8 +443,8 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
             The material behind the applications.
           </h1>
           <p className="mt-2 max-w-[58ch] text-[12.5px] leading-[1.55] text-muted-foreground">
-            Your base CV, public work, the experiences Caddie can draw on, and
-            the address applications are sent from.
+            Your CV and experience on the left, and how applications leave
+            Caddie on the right.
           </p>
         </div>
 
@@ -460,7 +452,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
           <div className="min-w-0 space-y-6">
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
-                <SectionLabel>Base CV</SectionLabel>
+                <Eyebrow>CV</Eyebrow>
                 {me.cv ? (
                   <Button
                     variant="ghost"
@@ -525,20 +517,13 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 </div>
               )}
 
-              {cvError ? (
-                <p role="alert" className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                  <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  {cvError}
-                </p>
-              ) : null}
+              {cvError ? <Notice className="mt-3">{cvError}</Notice> : null}
             </section>
-
-            <PublicWork me={me} onRefreshMe={onRefreshMe} />
 
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <SectionLabel>Experience library</SectionLabel>
+                  <Eyebrow>Experience</Eyebrow>
                   <p className="mt-1 max-w-[52ch] text-[11.5px] leading-[1.45] text-muted-foreground">
                     The work behind the CV. Add the things you actually did; Caddie
                     uses them to ground drafts and CV bullets.
@@ -550,22 +535,12 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 </Button>
               </div>
 
-              {storyNotice || storyError ? (
-                <p
-                  role={storyError ? 'alert' : 'status'}
-                  className={`mt-3 flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] leading-[1.45] ${
-                    storyError
-                      ? 'border-border/70 bg-muted/40 text-muted-foreground'
-                      : 'border-success/20 bg-success/5 text-success'
-                  }`}
-                >
-                  {storyError ? (
-                    <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  ) : (
-                    <Check className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  )}
-                  {storyError || storyNotice}
-                </p>
+              {storyError ? (
+                <Notice className="mt-3">{storyError}</Notice>
+              ) : storyNotice ? (
+                <Notice tone="success" className="mt-3">
+                  {storyNotice}
+                </Notice>
               ) : null}
 
               {me.stories.length === 0 ? (
@@ -640,6 +615,10 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                   ))}
                 </ul>
               )}
+
+              <div className="mt-6 border-t border-border/70 pt-5">
+                <PublicWork bare me={me} onRefreshMe={onRefreshMe} />
+              </div>
             </section>
           </div>
 
@@ -647,7 +626,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
             <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <SectionLabel>Sending identity</SectionLabel>
+                  <Eyebrow>Sending</Eyebrow>
                   <p className="mt-1 text-[11.5px] leading-[1.45] text-muted-foreground">
                     Applications are sent through your own Resend account. The key
                     stays encrypted and never comes back to this browser.
@@ -844,22 +823,12 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 </div>
               )}
 
-              {sendingNotice || sendingError ? (
-                <p
-                  role={sendingError ? 'alert' : 'status'}
-                  className={`mt-3 flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] leading-[1.45] ${
-                    sendingError
-                      ? 'border-border/70 bg-muted/40 text-muted-foreground'
-                      : 'border-success/20 bg-success/5 text-success'
-                  }`}
-                >
-                  {sendingError ? (
-                    <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  ) : (
-                    <Check className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  )}
-                  {sendingError || sendingNotice}
-                </p>
+              {sendingError ? (
+                <Notice className="mt-3">{sendingError}</Notice>
+              ) : sendingNotice ? (
+                <Notice tone="success" className="mt-3">
+                  {sendingNotice}
+                </Notice>
               ) : null}
 
               <div className="mt-4 flex items-start gap-2 border-t border-border/70 pt-3 text-[10px] leading-[1.45] text-muted-foreground">
@@ -884,7 +853,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
             <section className="mt-6 rounded-xl border border-border bg-card p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <SectionLabel>Telegram</SectionLabel>
+                  <Eyebrow>Telegram</Eyebrow>
                   <p className="mt-1 text-[11.5px] leading-[1.45] text-muted-foreground">
                     Use Caddie from Telegram for application intake, previews and
                     email sending.
@@ -957,10 +926,7 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
               )}
 
               {telegramError ? (
-                <p role="alert" className="mt-2 flex items-start gap-1.5 text-[10.5px] leading-[1.45] text-muted-foreground">
-                  <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
-                  {telegramError}
-                </p>
+                <Notice className="mt-2 text-[10.5px]">{telegramError}</Notice>
               ) : null}
             </section>
 
