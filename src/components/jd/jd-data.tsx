@@ -247,7 +247,7 @@ function DataEmpty({ onRun }: { onRun: () => void }) {
         Extract the role, company, requirements and relevant signals.
       </p>
       <Button className="mt-4 max-sm:h-11" onClick={onRun}>
-        Read with Gemma
+        Read posting
       </Button>
       <p className="mt-2 max-w-[34ch] text-[10.5px] leading-[1.4] text-muted-foreground">
         The posting goes to Cloudflare; a short company summary goes to
@@ -513,7 +513,7 @@ function DataBody({
       ) : null}
 
       <p className="border-t border-border/60 pt-2.5 text-[10px] text-muted-foreground">
-        Gemma · {meta.cached ? 'cached' : `${seconds}s`}
+        {meta.cached ? 'Read from cache' : `Read in ${seconds}s`}
         {profile
           ? ` · research ${profile.meta.cached ? 'cached' : `${researchSeconds}s`}`
           : ''}

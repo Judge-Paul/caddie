@@ -109,11 +109,11 @@ export function JdPanel({
   onClassified,
   locked = false,
 }: JdPanelProps) {
-  const [mode, setMode] = useState<'edit' | 'review' | 'data'>(
-    initialClassification || autoClassify ? 'review' : 'edit',
+  const [mode, setMode] = useState<'edit' | 'match' | 'details'>(
+    initialClassification || autoClassify ? 'match' : 'edit',
   )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const reviewRef = useRef<HTMLDivElement>(null)
+  const matchRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef<AbortController | null>(null)
   const researchRequestRef = useRef<AbortController | null>(null)
 
@@ -155,7 +155,7 @@ export function JdPanel({
   const hasText = value.trim().length > 0
   const words = hasText ? value.trim().split(/\s+/).length : 0
   const showEmptyState = !hasText
-  const canReview = hasText
+  const canMatch = hasText
 
   const signals = useMemo(() => {
     const seen = new Set<string>()
@@ -361,22 +361,22 @@ export function JdPanel({
       value.slice(event.currentTarget.selectionEnd)
 
     handleChange(next)
-    openReview()
+    openMatch()
     // The score needs the classified posting, so a real paste starts the read.
     if (next.trim().length >= 40) void runClassification(next)
   }
 
-  function openReview() {
-    setMode('review')
+  function openMatch() {
+    setMode('match')
     // the textarea unmounts, so keep keyboard focus in the panel
-    requestAnimationFrame(() => reviewRef.current?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => matchRef.current?.focus({ preventScroll: true }))
   }
 
   function handleLoadSample() {
     if (locked) return
     resetClassification()
     const text = onLoadSample()
-    openReview()
+    openMatch()
     void runClassification(text)
   }
 
@@ -401,7 +401,7 @@ export function JdPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] leading-none font-semibold tracking-[-0.015em] text-ink">
-              Job description
+              Posting
             </h2>
             {hasText ? (
               <Badge
@@ -421,7 +421,7 @@ export function JdPanel({
         {score && score.coverage !== null ? <CoverageRing value={score.coverage} /> : null}
       </div>
 
-      {hasText && status === 'loading' && mode !== 'data' ? (
+      {hasText && status === 'loading' && mode !== 'details' ? (
         <div
           role="status"
           aria-live="polite"
@@ -432,7 +432,7 @@ export function JdPanel({
         </div>
       ) : null}
 
-      {hasText && status === 'error' && mode !== 'data' ? (
+      {hasText && status === 'error' && mode !== 'details' ? (
         <div className="flex shrink-0 items-center justify-between gap-3 border-y border-border/70 bg-muted/30 px-5 py-2.5">
           <span className="flex min-w-0 items-start gap-1.5 text-[11.5px] leading-[1.4] text-muted-foreground">
             <AlertCircle className="mt-px size-3.5 shrink-0" strokeWidth={2} />
@@ -451,13 +451,13 @@ export function JdPanel({
         </div>
       ) : null}
 
-      {hasText && status === 'idle' && mode !== 'data' && !locked ? (
+      {hasText && status === 'idle' && mode !== 'details' && !locked ? (
         <div className="flex shrink-0 items-center justify-between gap-3 border-y border-border/70 bg-muted/30 px-5 py-2.5">
           <span className="text-[11.5px] text-muted-foreground">
             Read the posting to score it against your CV.
           </span>
           <Button size="sm" onClick={() => void runClassification()}>
-            Read with Gemma
+            Read posting
           </Button>
         </div>
       ) : null}
@@ -478,7 +478,7 @@ export function JdPanel({
             aria-valuenow={score.coverage}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="Job description coverage against your CV"
+              aria-label="Posting coverage against your CV"
           >
             <div
               className="h-full rounded-full bg-brand-600 transition-[width] duration-200 ease-out"
@@ -576,14 +576,14 @@ export function JdPanel({
           <div className="flex items-center rounded-lg bg-muted p-0.5">
             {!locked ? (
               <ModeButton active={mode === 'edit'} onClick={() => setMode('edit')}>
-                Paste
+                Edit
               </ModeButton>
             ) : null}
-            <ModeButton active={mode === 'review'} onClick={() => setMode('review')}>
-              Review
+            <ModeButton active={mode === 'match'} onClick={() => setMode('match')}>
+              Match
             </ModeButton>
-            <ModeButton active={mode === 'data'} onClick={() => setMode('data')}>
-              Data
+            <ModeButton active={mode === 'details'} onClick={() => setMode('details')}>
+              Details
             </ModeButton>
           </div>
           <div className="flex items-center gap-0.5">
@@ -613,7 +613,7 @@ export function JdPanel({
       ) : null}
 
       <div className="relative min-h-[300px] flex-1 lg:min-h-0">
-        {mode === 'data' && canReview ? (
+        {mode === 'details' && canMatch ? (
           <div className="h-full overflow-y-auto px-5 py-4">
             <JdData
               status={status}
@@ -637,7 +637,7 @@ export function JdPanel({
               }}
             />
           </div>
-        ) : mode === 'edit' || !canReview ? (
+        ) : mode === 'edit' || !canMatch ? (
           <div className="relative h-full">
             <Textarea
               ref={textareaRef}
@@ -646,7 +646,7 @@ export function JdPanel({
               onPaste={handlePaste}
               readOnly={locked}
               aria-readonly={locked}
-              aria-label="Job description"
+              aria-label="Posting"
               placeholder=""
               spellCheck={false}
               className="h-full min-h-[300px] resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[13px] leading-[1.7] text-ink/80 shadow-none placeholder:text-muted-foreground focus-visible:ring-0 [field-sizing:fixed] dark:bg-transparent"
@@ -661,7 +661,7 @@ export function JdPanel({
                   Paste the job description
                 </p>
                 <p className="mt-1 max-w-[36ch] text-[12px] leading-[1.5] text-muted-foreground">
-                  The posting, the requirements, all of it. Gemma reads it after
+                  The posting, the requirements, all of it. Caddie reads it after
                   you paste, then marks what your CV is missing.
                 </p>
                 {showSample ? (
@@ -679,10 +679,10 @@ export function JdPanel({
           </div>
         ) : (
           <div
-            ref={reviewRef}
+            ref={matchRef}
             tabIndex={-1}
             role="region"
-            aria-label="Job description with coverage highlights"
+            aria-label="Posting with coverage highlights"
             className="h-full overflow-y-auto px-5 py-4 outline-none"
           >
             <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-ink/80">
@@ -718,7 +718,7 @@ export function JdPanel({
         )}
       </div>
 
-      {mode === 'review' && hasText && score ? (
+      {mode === 'match' && hasText && score ? (
         <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/70 bg-muted/30 px-5 py-2.5 text-[11px] text-muted-foreground">
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="flex items-center gap-1.5">
