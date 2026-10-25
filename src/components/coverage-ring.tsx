@@ -30,7 +30,7 @@ export function CoverageRing({ value, className }: CoverageRingProps) {
           cy={SIZE / 2}
           r={RADIUS}
           fill="none"
-          stroke="#e6ecf7"
+          stroke="var(--brand-100)"
           strokeWidth={STROKE}
         />
         <circle
@@ -43,7 +43,7 @@ export function CoverageRing({ value, className }: CoverageRingProps) {
           strokeLinecap="round"
           strokeDasharray={CIRCUMFERENCE}
           strokeDashoffset={offset}
-          className="transition-[stroke-dashoffset] duration-500 ease-out"
+          className="transition-[stroke-dashoffset] duration-200 ease-out"
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center text-[11.5px] font-semibold tabular-nums tracking-tight text-ink">

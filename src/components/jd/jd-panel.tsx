@@ -481,7 +481,7 @@ export function JdPanel({
             aria-label="Job description coverage against your CV"
           >
             <div
-              className="h-full rounded-full bg-brand-600 transition-[width] duration-500 ease-out"
+              className="h-full rounded-full bg-brand-600 transition-[width] duration-200 ease-out"
               style={{ width: `${score.coverage}%` }}
             />
           </div>
@@ -649,7 +649,7 @@ export function JdPanel({
               aria-label="Job description"
               placeholder=""
               spellCheck={false}
-              className="h-full min-h-[300px] resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[13px] leading-[1.7] text-[#2a3446] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 [field-sizing:fixed] dark:bg-transparent"
+              className="h-full min-h-[300px] resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[13px] leading-[1.7] text-ink/80 shadow-none placeholder:text-muted-foreground focus-visible:ring-0 [field-sizing:fixed] dark:bg-transparent"
             />
 
             {showEmptyState ? (
@@ -685,7 +685,7 @@ export function JdPanel({
             aria-label="Job description with coverage highlights"
             className="h-full overflow-y-auto px-5 py-4 outline-none"
           >
-            <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-[#2a3446]">
+            <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-ink/80">
               {score
                 ? score.pieces.map((piece, index) => {
                     if (piece.mark === 'gap') {

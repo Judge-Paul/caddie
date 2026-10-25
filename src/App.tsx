@@ -31,7 +31,7 @@ import { AlertCircle, LoaderCircle, LogOut } from 'lucide-react'
 
 function Splash({ label = 'Opening Caddie' }: { label?: string }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)]">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(120%_90%_at_50%_-10%,var(--card)_0%,var(--canvas)_65%,var(--brand-100)_135%)]">
       <CaddieWordmark />
       <span className="mt-4 flex items-center gap-2 text-[12px] text-muted-foreground">
         <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />

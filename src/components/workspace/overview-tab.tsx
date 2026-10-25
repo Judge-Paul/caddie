@@ -148,7 +148,7 @@ export function OverviewTab({
               aria-label="Posting coverage against the CV"
             >
               <div
-                className="h-full rounded-full bg-brand-600 transition-[width] duration-500 ease-out"
+                className="h-full rounded-full bg-brand-600 transition-[width] duration-200 ease-out"
                 style={{ width: `${score.coverage}%` }}
               />
             </div>

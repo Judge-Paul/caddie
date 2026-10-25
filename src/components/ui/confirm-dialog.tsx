@@ -54,7 +54,7 @@ export function ConfirmDialog({
           role="dialog"
           aria-modal="true"
           aria-label={title}
-          className="pointer-events-auto w-full max-w-[430px] overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_80px_-30px_rgba(13,21,38,0.5)]"
+          className="dialog-shadow pointer-events-auto w-full max-w-[430px] overflow-hidden rounded-xl border border-border bg-card"
         >
           <header className="flex items-start justify-between gap-4 px-5 pt-5">
             <div>

@@ -48,7 +48,7 @@ export function AuthScreen() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[radial-gradient(120%_90%_at_50%_-10%,#ffffff_0%,#f4f6fb_60%,#edf0f7_100%)]">
+    <div className="flex min-h-dvh flex-col bg-[radial-gradient(120%_90%_at_50%_-10%,var(--card)_0%,var(--canvas)_65%,var(--brand-100)_135%)]">
       <header className="flex h-14 shrink-0 items-center gap-3 px-4 sm:px-6">
         <CaddieWordmark />
       </header>

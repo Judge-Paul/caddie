@@ -162,7 +162,7 @@ function ExperienceDialog({
           role="dialog"
           aria-modal="true"
           aria-label={story ? 'Edit experience' : 'Add experience'}
-          className="pointer-events-auto flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_80px_-30px_rgba(13,21,38,0.5)]"
+          className="dialog-shadow pointer-events-auto flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-border bg-card"
         >
           <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
             <div>

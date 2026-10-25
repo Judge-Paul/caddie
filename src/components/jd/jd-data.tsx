@@ -189,7 +189,7 @@ function CompanyResearch({
       ) : data ? (
         <div className="space-y-2 rounded-lg border border-border/70 px-2.5 py-2">
           {data.summary ? (
-            <p className="text-[11.5px] leading-[1.5] text-[#2a3446]">{data.summary}</p>
+            <p className="text-[11.5px] leading-[1.5] text-ink/80">{data.summary}</p>
           ) : null}
 
           {data.founders.length > 0 ? (
@@ -412,7 +412,7 @@ function DataBody({
       ) : null}
 
       {data.summary ? (
-        <p className="max-w-[65ch] text-[12px] leading-[1.55] text-[#2a3446]">
+        <p className="max-w-[65ch] text-[12px] leading-[1.55] text-ink/80">
           {data.summary}
         </p>
       ) : null}

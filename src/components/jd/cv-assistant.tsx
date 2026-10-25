@@ -275,7 +275,7 @@ export function CvAssistant({
         role="dialog"
         aria-modal="true"
         aria-label="CV assistant"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col border-l border-border bg-card shadow-[-24px_0_60px_-40px_rgba(13,21,38,0.45)]"
+        className="drawer-shadow fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col border-l border-border bg-card"
       >
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
           <div className="min-w-0">
