@@ -215,7 +215,7 @@ export async function openDocx(input: Uint8Array): Promise<ParsedDocx> {
   }
 
   for (const name of names.filter((entry) =>
-    /^word\/_rels\/.*\.rels$/i.test(entry),
+    /(^|\/)_rels\/[^/]+\.rels$/i.test(entry),
   )) {
     const file = zip.file(name)
     if (!file) continue
