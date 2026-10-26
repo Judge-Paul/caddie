@@ -12,8 +12,10 @@ import type {
   EmailDraft,
   PublicWork,
   SavePublicWorkInput,
+  StoredApplicationForm,
   UpdateApplicationPatch,
 } from '../shared/account'
+import type { AtsKind } from '../shared/application-form'
 import type { CvStory } from '../shared/cv-fit'
 import {
   normaliseClassification,
@@ -69,6 +71,13 @@ type ProfileDoc = {
   updatedAt: Date
 }
 
+type ApplicationFormDoc = {
+  url: string
+  ats: AtsKind
+  supported: boolean
+  appliedAt: Date | null
+}
+
 type ApplicationDoc = {
   _id: ObjectId
   userId: string
@@ -82,6 +91,8 @@ type ApplicationDoc = {
   completedAt?: Date | null
   sentAt?: Date | null
   sentTo?: string | null
+  sourceUrl?: string | null
+  form?: ApplicationFormDoc | null
   cv: StoredCv
   createdAt: Date
   updatedAt: Date
@@ -186,7 +197,43 @@ function detail(doc: ApplicationDoc): ApplicationDetail {
     classification: doc.classification,
     coverLetter: doc.coverLetter ?? null,
     emailDraft: doc.emailDraft ?? null,
+    sourceUrl: doc.sourceUrl ?? null,
+    form: doc.form
+      ? {
+          url: doc.form.url,
+          ats: doc.form.ats,
+          supported: doc.form.supported,
+          appliedAt: doc.form.appliedAt?.toISOString() ?? null,
+        } satisfies StoredApplicationForm
+      : null,
   }
+}
+
+export async function saveApplicationSource(
+  userId: string,
+  id: string,
+  source: { sourceUrl: string; form: Omit<StoredApplicationForm, 'appliedAt'> | null },
+): Promise<ApplicationDetail> {
+  await getApplication(userId, id)
+  const store = requireMongo()
+  await store.db.collection<ApplicationDoc>('applications').updateOne(
+    { _id: objectId(id), userId },
+    {
+      $set: {
+        sourceUrl: source.sourceUrl,
+        form: source.form
+          ? {
+              url: source.form.url,
+              ats: source.form.ats as AtsKind,
+              supported: source.form.supported,
+              appliedAt: null,
+            }
+          : null,
+        updatedAt: new Date(),
+      },
+    },
+  )
+  return getApplication(userId, id)
 }
 
 async function downloadBuffer(store: MongoContext, id: ObjectId) {

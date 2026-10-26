@@ -7,12 +7,17 @@
  */
 
 export type SupportedAts = 'greenhouse' | 'lever' | 'ashby' | 'workable'
-export type AtsKind = SupportedAts | 'unsupported'
+/**
+ * `custom` is a parseable host that is none of the known boards: a generic
+ * HTML form Caddie attempts directly. Only known-hard systems are
+ * `unsupported`.
+ */
+export type AtsKind = SupportedAts | 'custom' | 'unsupported'
 
 export type ApplicationForm = {
   url: string
   ats: AtsKind
-  /** True for the four boards v1 automates. */
+  /** False only for known-hard systems (Workday and the like). */
   supported: boolean
 }
 
@@ -58,6 +63,11 @@ function hostOf(url: string): string {
   } catch {
     return ''
   }
+}
+
+export function isAggregatorUrl(url: string): boolean {
+  const host = hostOf(url)
+  return Boolean(host) && AGGREGATOR_HOSTS.some((pattern) => pattern.test(host))
 }
 
 export function classifyAts(url: string): AtsKind | null {
@@ -118,7 +128,8 @@ function scoreFormUrl(
   const ats = classifyAts(url)
   let score = 0
   if (ats && ats !== 'unsupported') score += 5
-  if (ats === 'unsupported') score += 5
+  else if (ats === 'unsupported') score += 5
+  else score += 2
 
   const window = text.slice(Math.max(0, index - 140), Math.min(text.length, index + 140))
   if (CONTEXT_STRONG.test(window)) score += 4
@@ -152,7 +163,8 @@ export function findApplicationUrl(
   const best = scored[0]
   if (!best || best.score < 5) return null
 
-  const ats = classifyAts(best.url)
+  const known = classifyAts(best.url)
+  const ats: AtsKind | null = known ?? (hostOf(best.url) ? 'custom' : null)
   if (!ats) return null
 
   return {

@@ -1,4 +1,5 @@
 import type { CvStory } from './cv-fit'
+import type { AtsKind } from './application-form'
 import type { ClassificationResult } from './jd-classification'
 
 export type AccountUser = {
@@ -154,11 +155,23 @@ export type ApplicationSummary = {
   updatedAt: string
 }
 
+export type StoredApplicationForm = {
+  url: string
+  ats: AtsKind
+  supported: boolean
+  /** Set when Caddie submits the form; null while unsent. */
+  appliedAt: string | null
+}
+
 export type ApplicationDetail = ApplicationSummary & {
   jdText: string
   classification: ClassificationResult | null
   coverLetter: CoverLetterDraft | null
   emailDraft: EmailDraft | null
+  /** The link the posting was read from, when pasted as a link. */
+  sourceUrl: string | null
+  /** The form to apply through, when the posting names one. */
+  form: StoredApplicationForm | null
 }
 
 export type AccountMe = {
