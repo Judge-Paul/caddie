@@ -348,7 +348,9 @@ that `src/lib/match.ts` scores against the CV.
   and never part of the score.
 - `npm run eval` scores model changes against `eval/corpus.ts` and rewrites
   `eval/report.md`; it bypasses the classification cache. Curate labels there,
-  not in the runner.
+  not in the runner. `npm run eval:router` scores the Telegram router variants
+  against `eval/router-cases.ts` and rewrites `eval/report-router.md`; it only
+  exercises messages the heuristics leave unresolved.
 - If a new field is worth showing, add it to the shared type, the normaliser and
   the prompt together. Never invent a field in the renderer.
 

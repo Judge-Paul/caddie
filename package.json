@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "api": "bun server/index.ts",
     "eval": "bun eval/run.ts",
+    "eval:router": "bun eval/router.ts",
     "migrate:r2": "bun server/migrate-r2.ts",
     "bot": "bun server/telegram/index.ts",
     "start": "bun server/index.ts",
