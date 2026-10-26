@@ -181,6 +181,27 @@ function fileUploads(fields: MappedField[]) {
  * v0: read-only. Opens the form, maps every field to an applicant detail
  * (or flags it), then closes the session. Never fills, never submits.
  */
+/**
+ * Runs the Clef mapping over a snapshot in batches. Shared by the read-only
+ * mapper and the submit flow so both decide identically.
+ */
+export async function decideFields(
+  config: ServerConfig,
+  snapshot: RawSnapshot,
+  profile: ApplicantProfile | null,
+): Promise<MappedField[]> {
+  const fields: MappedField[] = []
+  for (let start = 0; start < snapshot.fields.length; start += BATCH) {
+    const batch = snapshot.fields.slice(start, start + BATCH)
+    const result = await runClef(config, {
+      state: stateText({ ...snapshot, fields: batch }),
+      questions: buildClefQuestions(batch),
+    })
+    fields.push(...applyClefAnswers({ fields: batch }, result.answers, profile))
+  }
+  return fields
+}
+
 export async function mapApplicationForm(
   config: ServerConfig,
   input: { userId: string; url: string },
@@ -189,16 +210,7 @@ export async function mapApplicationForm(
   try {
     const snapshot = await snapshotForm(session.page)
     const profile = await applicantForFill(input.userId).catch(() => null)
-
-    const fields: MappedField[] = []
-    for (let start = 0; start < snapshot.fields.length; start += BATCH) {
-      const batch = snapshot.fields.slice(start, start + BATCH)
-      const result = await runClef(config, {
-        state: stateText({ ...snapshot, fields: batch }),
-        questions: buildClefQuestions(batch),
-      })
-      fields.push(...applyClefAnswers({ fields: batch }, result.answers, profile))
-    }
+    const fields = await decideFields(config, snapshot, profile)
 
     return {
       url: snapshot.url,

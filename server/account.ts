@@ -209,6 +209,27 @@ function detail(doc: ApplicationDoc): ApplicationDetail {
   }
 }
 
+export async function markFormApplied(userId: string, id: string): Promise<ApplicationDetail> {
+  const current = await getApplication(userId, id)
+  if (!current.form) {
+    throw new AccountError('This application has no form to submit.', 409)
+  }
+  if (current.form.appliedAt) return current
+
+  const store = requireMongo()
+  const now = new Date()
+  await store.db.collection<ApplicationDoc>('applications').updateOne(
+    { _id: objectId(id), userId },
+    { $set: { 'form.appliedAt': now, updatedAt: now } },
+  )
+  if (current.sentAt) return getApplication(userId, id)
+  try {
+    return await completeApplication(userId, id)
+  } catch {
+    return getApplication(userId, id)
+  }
+}
+
 export async function saveApplicationSource(
   userId: string,
   id: string,
