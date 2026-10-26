@@ -87,6 +87,7 @@ import {
 } from './sending'
 import { sessionMiddleware, type AppEnv } from './session'
 import { validateJd } from './validate'
+import { intakeLinkApplication } from './link-intake'
 import {
   deepCvReadLimit,
   previewRateLimit,
@@ -160,6 +161,7 @@ app.use('/api/cv/fit', userRateLimit('CV fit', 5))
 app.use('/api/applications/:id/compose', userRateLimit('draft generation', 4))
 app.use('/api/applications/:id/compose', userDailyLimit('draft generation', 30))
 app.use('/api/applications/:id/send', userRateLimit('email send', 5))
+app.use('/api/applications/from-link', userRateLimit('link intake', 5))
 app.use('/api/applications/:id/cover-letter.pdf', userRateLimit('cover-letter PDF', 10))
 app.use('/api/me/public-work', userRateLimit('public work read', 3))
 app.use('/api/me/cv*', userRateLimit('CV file', 20))
@@ -814,6 +816,25 @@ app.post('/api/applications', async (c) => {
   try {
     const session = c.get('session')
     return c.json(await createApplication(session.user.id, jdText), 201)
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.post('/api/applications/from-link', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { url?: unknown } | null
+  const url = typeof body?.url === 'string' ? body.url.trim() : ''
+
+  if (!url) {
+    return c.json({ error: 'Send a link to read.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    const prepared = await intakeLinkApplication(session.user.id, url, {
+      applicantName: session.user.name ?? null,
+    })
+    return c.json(prepared.application, 201)
   } catch (error) {
     return cvFailure(c, error)
   }

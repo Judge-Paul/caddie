@@ -168,6 +168,13 @@ export function getBaseCvFile(kind: AccountCvKind) {
   return file(`/api/me/cv/${kind}`)
 }
 
+export function createApplicationFromLink(url: string) {
+  return request<ApplicationDetail>('/api/applications/from-link', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
 export function createApplication(jdText: string) {
   const body: CreateApplicationInput = { jdText }
   return request<ApplicationDetail>('/api/applications', {

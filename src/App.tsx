@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   createApplication,
+  createApplicationFromLink,
   deleteApplication,
   getApplication,
   getMe,
@@ -221,6 +222,13 @@ function AccountApp({ user }: { user: AccountUser }) {
     setActive(detail)
   }
 
+  async function handleCreateFromLink(url: string) {
+    const detail = await createApplicationFromLink(url)
+    await loadMe().catch(() => {})
+    setView('applications')
+    setActive(detail)
+  }
+
   function handleBack() {
     setActive(null)
     setView('applications')
@@ -427,6 +435,7 @@ function AccountApp({ user }: { user: AccountUser }) {
           onOpenApplication={(id) => void handleOpenApplication(id)}
           onOpenProfile={handleOpenProfile}
           onCreateApplication={handleCreateApplication}
+          onCreateApplicationFromLink={handleCreateFromLink}
           onDeleteApplication={handleDeleteApplication}
           onUploadCv={handleUploadCv}
         />

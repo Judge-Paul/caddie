@@ -31,6 +31,7 @@ type DashboardProps = {
   onOpenApplication: (id: string) => void
   onOpenProfile: () => void
   onCreateApplication: (jdText: string) => Promise<void>
+  onCreateApplicationFromLink: (url: string) => Promise<void>
   onDeleteApplication: (id: string) => Promise<void>
   onUploadCv: (file: File) => Promise<void>
 }
@@ -116,19 +117,26 @@ function DocumentPills({ application }: { application: ApplicationSummary }) {
   )
 }
 
+const BARE_LINK =
+  /^(https?:\/\/[^\s)]+|www\.[^\s)]+|github\.com\/[^\s)]+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[^\s)]*)?)$/i
+
 function NewApplicationDialog({
   open,
   onClose,
   onCreate,
+  onCreateFromLink,
 }: {
   open: boolean
   onClose: () => void
   onCreate: (jdText: string) => Promise<void>
+  onCreateFromLink: (url: string) => Promise<void>
 }) {
   const [jdText, setJdText] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const trimmed = jdText.trim()
+  const isLink = BARE_LINK.test(trimmed)
 
   useEffect(() => {
     if (!open) return
@@ -147,7 +155,7 @@ function NewApplicationDialog({
   if (!open) return null
 
   async function handleCreate() {
-    if (jdText.trim().length < 40) {
+    if (!isLink && trimmed.length < 40) {
       setError('Paste the full posting first.')
       return
     }
@@ -155,7 +163,8 @@ function NewApplicationDialog({
     setSubmitting(true)
     setError('')
     try {
-      await onCreate(jdText.trim())
+      if (isLink) await onCreateFromLink(trimmed)
+      else await onCreate(trimmed)
       setJdText('')
       onClose()
     } catch (caught) {
@@ -189,6 +198,7 @@ function NewApplicationDialog({
               </h2>
               <p className="mt-1.5 text-[11.5px] leading-[1.45] text-muted-foreground">
                 Caddie will read the posting and open an application workspace.
+                A posting link works too.
               </p>
             </div>
             <Button
@@ -217,7 +227,7 @@ function NewApplicationDialog({
               }}
               rows={14}
               spellCheck={false}
-              placeholder="Paste the role, requirements and responsibilities…"
+              placeholder="Paste the role, requirements and responsibilities… or just the posting link"
               className="mt-1.5 w-full resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[12px] leading-[1.6] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
 
@@ -232,10 +242,10 @@ function NewApplicationDialog({
               size="sm"
               className="max-sm:h-11"
               onClick={() => void handleCreate()}
-              disabled={submitting || jdText.trim().length < 40}
+              disabled={submitting || (!isLink && trimmed.length < 40)}
             >
               {submitting ? <LoaderCircle className="animate-spin" /> : <Plus />}
-              Create application
+              {submitting && isLink ? 'Reading link…' : 'Create application'}
             </Button>
           </footer>
         </div>
@@ -338,6 +348,7 @@ export function Dashboard({
   onOpenApplication,
   onOpenProfile,
   onCreateApplication,
+  onCreateApplicationFromLink,
   onDeleteApplication,
   onUploadCv,
 }: DashboardProps) {
@@ -591,6 +602,7 @@ export function Dashboard({
           open
           onClose={() => setCreating(false)}
           onCreate={onCreateApplication}
+          onCreateFromLink={onCreateApplicationFromLink}
         />
       ) : null}
 

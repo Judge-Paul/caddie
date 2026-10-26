@@ -162,7 +162,7 @@ entrance animations on load, no bouncing.
   (`/api/me`, `/api/applications`, `/api/cv/*`, `/api/classify`,
   `/api/research`) requires a session.
 - The dashboard lists applications in a table and creates one from a pasted
-  posting. The workspace is scoped to that application. **Profile** holds the
+  posting or posting link. The workspace is scoped to that application. **Profile** holds the
   material (the CV, Experience with stories and the links Caddie has read,
   plus the application details forms are filled with) and the connections
   (Sending and Telegram).
@@ -225,10 +225,13 @@ entrance animations on load, no bouncing.
   takes `{ kind: "cover-letter" | "email" }`, reads the CV PDF from R2, the
   stored classification and the user's experiences, then returns the updated
   application. Regeneration replaces the current text; the UI confirms first.
-- **Telegram application runs.** A pasted JD is processed by
+- **Telegram application runs.** A pasted JD — or a bare posting link, read
+  through `server/link-intake.ts` and validated like a paste — is processed by
   `server/application-pipeline.ts`: create application, validate and classify,
   optional company research, coverage, automatic line-neutral CV tailoring from
   approved evidence, cover letter, email draft, and email-recipient detection.
+  A form URL found in the text (or the pasted page itself) is stored on the
+  application for the fill step.
   The bot shows a coverage summary and signed CV/cover links. Review is the
   default. `/auto on` lets it send without preview only when an application
   email and Resend identity exist. Missing email/identity and generation
