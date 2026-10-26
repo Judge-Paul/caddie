@@ -155,7 +155,12 @@ export function applyClefAnswers(
       profileKey,
       confidence,
       hasValue,
-      needsYou: field.required && (!profileKey || !hasValue),
+      // Consent checkboxes carry no applicant data: checking them is the act
+      // of applying, never a missing value.
+      needsYou:
+        field.required &&
+        kindOf(field) !== 'checkbox' &&
+        (!profileKey || !hasValue),
     }
   })
 }
