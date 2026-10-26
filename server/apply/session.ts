@@ -1,16 +1,19 @@
-import { chromium, type Browser, type Page } from 'playwright-core'
-
 import { BrowserbaseError } from '../research/browserbase'
+import {
+  connectCdp,
+  pageFromConnection,
+  type CdpConnection,
+  type CdpPage,
+} from './cdp'
 
 const API_ROOT = 'https://api.browserbase.com/v1'
 const CONNECT_TIMEOUT_MS = 30_000
-const GOTO_TIMEOUT_MS = 45_000
 const SESSION_TTL_SECONDS = 600
 
 export type ApplySession = {
   id: string
-  browser: Browser
-  page: Page
+  connection: CdpConnection
+  page: CdpPage
   liveUrl: string
 }
 
@@ -55,9 +58,9 @@ async function rest<T>(
 }
 
 /**
- * Opens a fresh cloud browser on Browserbase. Playwright is only the control
- * protocol here: no local browser runs, and the site sees Browserbase's
- * cloud Chrome behind the stealth and proxy settings, not automation tooling.
+ * Opens a fresh cloud browser on Browserbase. The control protocol is a
+ * plain WebSocket speaking CDP: no local browser, and the site sees
+ * Browserbase's cloud Chrome rather than automation tooling.
  */
 export async function openApplySession(
   config: { browserbaseKey: string | null },
@@ -66,28 +69,26 @@ export async function openApplySession(
   const apiKey = key(config)
   const created = await rest<{ id: string; connectUrl: string }>(apiKey, '/sessions', {
     // Keep to documented fields; stealth and proxy tuning lands with the
-    // submit path once a board proves to need it.
+    // submit path if a board proves to need it.
     body: { timeout: SESSION_TTL_SECONDS },
   })
   if (!created.id || !created.connectUrl) {
     throw new BrowserbaseError('Browserbase did not return a session.', 502)
   }
 
-  let browser: Browser | null = null
+  let connection: CdpConnection | null = null
   try {
-    browser = await chromium.connectOverCDP(created.connectUrl, {
-      timeout: CONNECT_TIMEOUT_MS,
-    })
-    const page = browser.contexts()[0]?.pages()[0] ?? (await browser.newPage())
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS })
+    connection = await connectCdp(created.connectUrl, CONNECT_TIMEOUT_MS)
+    const page = pageFromConnection(connection)
+    await page.navigate(url)
     return {
       id: created.id,
-      browser,
+      connection,
       page,
       liveUrl: `https://www.browserbase.com/sessions/${created.id}`,
     }
   } catch (error) {
-    await browser?.close().catch(() => {})
+    connection?.close()
     await endApplySession(config, created.id).catch(() => {})
     throw error instanceof BrowserbaseError
       ? error
@@ -110,7 +111,6 @@ export async function closeApplySession(
   config: { browserbaseKey: string | null },
   session: ApplySession,
 ) {
-  await session.page.close().catch(() => {})
-  await session.browser.close().catch(() => {})
+  session.connection.close()
   await endApplySession(config, session.id)
 }

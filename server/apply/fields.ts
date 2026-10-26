@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core'
+import type { CdpPage as Page } from './cdp'
 
 export type RawField = {
   /** Index into the snapshot; also stamped on the element for the actor. */

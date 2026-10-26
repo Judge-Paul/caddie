@@ -10,7 +10,9 @@ import {
   detectBlockers,
   pace,
   performFill,
+  selectRemoteFile,
   takeScreenshot,
+  uploadSessionFile,
   visibleText,
   type FillAction,
 } from './act'
@@ -55,13 +57,7 @@ function actionFor(
   field: MappedField,
   profileKey: NonNullable<MappedField['profileKey']>,
   ctx: FillContext,
-  files: { cv?: { fileName: string; bytes: Uint8Array }; cover?: { fileName: string; bytes: Uint8Array } },
 ): FillAction | null {
-  if (field.kind === 'file') {
-    const file = profileKey === 'cv_file' ? files.cv : profileKey === 'cover_letter_file' ? files.cover : undefined
-    if (!file) return null
-    return { type: 'file', fileName: file.fileName, bytes: file.bytes }
-  }
   if (field.kind === 'checkbox') return { type: 'check' }
   if (field.kind === 'select' || field.kind === 'radio-group') {
     const option = matchFieldOption(field.options ?? [], profileKey, ctx, field.label)
@@ -151,8 +147,58 @@ export async function applyToForm(
 
     let filled = 0
     for (const field of fields) {
+      if (field.kind === 'checkbox' && !field.profileKey) {
+        if (!field.required) continue
+        await input.onProgress?.(`Checking ${field.label || 'consent'}…`)
+        const checked = await performFill(session.page, field.ref, field.kind, {
+          type: 'check',
+        })
+        if (!checked.ok) {
+          throw new FormNeedsHuman(
+            `"${field.label || field.kind}" could not be checked. It needs a human look:`,
+            session.liveUrl,
+          )
+        }
+        filled += 1
+        await pace()
+        continue
+      }
       if (!field.profileKey || field.kind === 'other') continue
-      const action = actionFor(field, field.profileKey, ctx, files)
+      if (field.kind === 'file') {
+        const file =
+          field.profileKey === 'cv_file'
+            ? files.cv
+            : field.profileKey === 'cover_letter_file'
+              ? files.cover
+              : undefined
+        if (!file) {
+          throw new FormNeedsHuman(
+            `No file fits "${field.label || field.kind}". Add it under application details in Profile.`,
+            session.liveUrl,
+          )
+        }
+        if (!config.browserbaseKey) {
+          throw new AccountError('Form apply needs BROWSERBASE_API_KEY.', 503)
+        }
+        await input.onProgress?.(`Uploading ${field.label || 'file'}…`)
+        const remote = await uploadSessionFile(
+          config.browserbaseKey,
+          session.id,
+          file.fileName,
+          file.bytes,
+        )
+        const attached = await selectRemoteFile(session.page, field.ref, remote)
+        if (!attached) {
+          throw new FormNeedsHuman(
+            `"${field.label || field.kind}" did not take the file. It needs a human look:`,
+            session.liveUrl,
+          )
+        }
+        filled += 1
+        await pace()
+        continue
+      }
+      const action = actionFor(field, field.profileKey, ctx)
       if (!action) {
         throw new FormNeedsHuman(
           `No answer fits "${field.label || field.kind}". Add it under application details in Profile.`,
@@ -191,8 +237,9 @@ export async function applyToForm(
     }
 
     const formStillThere = await session.page
-      .locator('form input, form select, form textarea')
-      .count()
+      .evaluate<number>(
+        `(() => document.querySelectorAll('form input, form select, form textarea').length)()`,
+      )
       .then((count) => count > 0)
       .catch(() => true)
     const readiness = await runClef(config, {
