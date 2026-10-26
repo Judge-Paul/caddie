@@ -4,7 +4,7 @@ import type { ServerConfig } from '../env'
 import { applicantForFill } from '../applicant'
 import type { ApplicantProfile } from '../../shared/account'
 import { closeApplySession, openApplySession } from './session'
-import { snapshotForm, type RawField, type RawSnapshot } from './fields'
+import { prepareSnapshot, type RawField, type RawSnapshot } from './fields'
 
 export type ProfileKey =
   | 'name'
@@ -36,7 +36,8 @@ export const PROFILE_KEY_CRITERIA: Record<ProfileKey | 'none', string> = {
   salary: 'The field asks for salary expectations or desired pay.',
   noticePeriod: 'The field asks for a notice period, availability or start date.',
   linkedin: 'The field asks for a LinkedIn profile, website, portfolio or social link.',
-  eeoGender: 'The equal-opportunity question asks about gender.',
+  eeoGender:
+    'The equal-opportunity question asks about gender. Pronoun options such as he/him or they/them are not EEO answers.',
   eeoVeteran: 'The equal-opportunity question asks about veteran status.',
   eeoDisability: 'The equal-opportunity question asks about disability.',
   eeoRace: 'The equal-opportunity question asks about race or ethnicity.',
@@ -59,6 +60,8 @@ export type FieldKind =
 export type MappedField = {
   /** Snapshot ref, stamped on the element for the fill step. */
   ref: number
+  /** Which attached frame the element lives in. */
+  frame: number
   label: string
   kind: FieldKind
   required: boolean
@@ -99,6 +102,7 @@ function describeField(field: RawField) {
   const parts = [
     `${field.tag}${field.inputType ? `[${field.inputType}]` : ''}`,
     `"${field.label || 'unlabeled'}"`,
+    ...(field.section ? [`section: "${field.section}"`] : []),
   ]
   if (field.required) parts.push('required')
   if (field.options?.length) parts.push(`options: ${field.options.slice(0, 12).join(' | ')}`)
@@ -132,6 +136,29 @@ function keyHasValue(key: ProfileKey, profile: ApplicantProfile | null): boolean
   }
 }
 
+const PRONOUN_TOKENS = new Set(
+  'he him his she her hers they them theirs their xe xem ze hir hirs ey em fae faer hu hus it its per ve ver vis zir'.split(
+    ' ',
+  ),
+)
+
+function looksLikePronouns(label: string) {
+  const normalized = label.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (
+    normalized === 'use name only' ||
+    normalized === 'prefer to self-describe' ||
+    normalized === 'prefer to self-describe as' ||
+    normalized === 'custom'
+  ) {
+    return true
+  }
+  const parts = normalized
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return parts.length >= 2 && parts.every((part) => PRONOUN_TOKENS.has(part))
+}
+
 export function applyClefAnswers(
   snapshot: Pick<RawSnapshot, 'fields'>,
   answers: Record<string, { type: string; choice?: string; confidence?: number }>,
@@ -144,12 +171,25 @@ export function applyClefAnswers(
         ? (answer.choice as ProfileKey | 'none')
         : null
     const confidence = typeof answer?.confidence === 'number' ? answer.confidence : 0
-    const profileKey = choice && choice !== 'none' && confidence >= MAP_CONFIDENCE ? choice : null
+    const kind = kindOf(field)
+    let profileKey = choice && choice !== 'none' && confidence >= MAP_CONFIDENCE ? choice : null
+    // Pronoun checkboxes are identity expression, not EEO answers. Rules beat
+    // the model here: mapping them to eeoGender would check the wrong box.
+    if (
+      profileKey !== null &&
+      profileKey.startsWith('eeo') &&
+      kind !== 'select' &&
+      kind !== 'radio-group' &&
+      looksLikePronouns(field.label)
+    ) {
+      profileKey = null
+    }
     const hasValue = profileKey !== null && keyHasValue(profileKey, profile)
     return {
       ref: field.ref,
+      frame: field.frame,
       label: field.label || `${field.tag} field`,
-      kind: kindOf(field),
+      kind,
       required: field.required,
       ...(field.options?.length ? { options: field.options } : {}),
       profileKey,
@@ -159,7 +199,7 @@ export function applyClefAnswers(
       // of applying, never a missing value.
       needsYou:
         field.required &&
-        kindOf(field) !== 'checkbox' &&
+        kind !== 'checkbox' &&
         (!profileKey || !hasValue),
     }
   })
@@ -213,7 +253,7 @@ export async function mapApplicationForm(
 ): Promise<FormMap> {
   const session = await openApplySession(config, input.url)
   try {
-    const snapshot = await snapshotForm(session.page)
+    const snapshot = await prepareSnapshot(session)
     const profile = await applicantForFill(input.userId).catch(() => null)
     const fields = await decideFields(config, snapshot, profile)
 

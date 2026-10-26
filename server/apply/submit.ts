@@ -4,7 +4,7 @@ import { runClef } from '../cloudflare'
 import { renderCoverLetterPdf } from '../cover-letter'
 import type { ServerConfig } from '../env'
 import { decideFields, MAP_CONFIDENCE, type MappedField } from './map'
-import { snapshotForm } from './fields'
+import { prepareSnapshot } from './fields'
 import {
   clickSubmit,
   detectBlockers,
@@ -36,7 +36,7 @@ export type ApplyResult = {
   fieldsTotal: number
 }
 
-const READINESS_QUESTION = {
+export const READINESS_QUESTION = {
   type: 'choice' as const,
   instructions:
     'After pressing submit, did the job application go through? Use the page text and whether a form is still showing.',
@@ -100,8 +100,10 @@ export async function applyToForm(
   }
 
   const session = await openApplySession(config, application.form.url)
+  const frameOf = (frameIndex: number) =>
+    session.frames[frameIndex] ?? session.page
   try {
-    const snapshot = await snapshotForm(session.page)
+    const snapshot = await prepareSnapshot(session)
     if (snapshot.fields.length === 0) {
       throw new FormNeedsHuman(
         'No fillable fields were found on that page. It may need a human look.',
@@ -120,8 +122,16 @@ export async function applyToForm(
       )
     }
 
-    const blockers = await detectBlockers(session.page)
-    if (blockers.passwordFields > 0 || blockers.captchaFrames > 0 || blockers.loginWall) {
+    let blocked = { passwordFields: 0, captchaFrames: 0, loginWall: false }
+    for (const frame of session.frames) {
+      const found = await detectBlockers(frame)
+      blocked = {
+        passwordFields: blocked.passwordFields + found.passwordFields,
+        captchaFrames: blocked.captchaFrames + found.captchaFrames,
+        loginWall: blocked.loginWall || found.loginWall,
+      }
+    }
+    if (blocked.passwordFields > 0 || blocked.captchaFrames > 0 || blocked.loginWall) {
       throw new FormNeedsHuman(
         'That form asks for a login or a captcha, which always needs a human. Open it here:',
         session.liveUrl,
@@ -150,7 +160,7 @@ export async function applyToForm(
       if (field.kind === 'checkbox' && !field.profileKey) {
         if (!field.required) continue
         await input.onProgress?.(`Checking ${field.label || 'consent'}…`)
-        const checked = await performFill(session.page, field.ref, field.kind, {
+        const checked = await performFill(frameOf(field.frame), field.ref, field.kind, {
           type: 'check',
         })
         if (!checked.ok) {
@@ -187,7 +197,7 @@ export async function applyToForm(
           file.fileName,
           file.bytes,
         )
-        const attached = await selectRemoteFile(session.page, field.ref, remote)
+        const attached = await selectRemoteFile(frameOf(field.frame), field.ref, remote)
         if (!attached) {
           throw new FormNeedsHuman(
             `"${field.label || field.kind}" did not take the file. It needs a human look:`,
@@ -206,7 +216,7 @@ export async function applyToForm(
         )
       }
       await input.onProgress?.(`Filling ${field.label || field.kind}…`)
-      const result = await performFill(session.page, field.ref, field.kind, action)
+      const result = await performFill(frameOf(field.frame), field.ref, field.kind, action)
       if (!result.ok) {
         throw new FormNeedsHuman(
           `"${field.label || field.kind}" did not take the value. It needs a human look:`,
@@ -219,7 +229,11 @@ export async function applyToForm(
 
     await input.onProgress?.('Submitting…')
     const preShot = await takeScreenshot(session.page).catch(() => null)
-    const submitted = await clickSubmit(session.page, snapshot.submits)
+    const firstSubmit = snapshot.submits[0]
+    const submitted = await clickSubmit(
+      firstSubmit ? frameOf(firstSubmit.frame) : session.page,
+      snapshot.submits,
+    )
     const postShot = await takeScreenshot(session.page).catch(() => null)
     const screenshots = [preShot, postShot].filter(
       (shot): shot is NonNullable<typeof shot> => shot !== null,
