@@ -74,7 +74,13 @@ const readinessCases: ReadinessCase[] = [
     formShowing: false,
     text: 'Your application has been received. Create an account to track its status.',
     expected: 'submitted',
-    note: 'Optional tracking account is not a required step.',
+    note: 'optional account nudge is not a required step',
+  },
+  {
+    id: 'needs-account-required',
+    formShowing: true,
+    text: 'Almost done. You must create an account to complete your application.',
+    expected: 'needs_human',
   },
   {
     id: 'needs-account-required',

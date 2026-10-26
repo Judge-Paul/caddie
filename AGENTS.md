@@ -355,7 +355,13 @@ that `src/lib/match.ts` scores against the CV.
   `eval/report.md`; it bypasses the classification cache. Curate labels there,
   not in the runner. `npm run eval:router` scores the Telegram router variants
   against `eval/router-cases.ts` and rewrites `eval/report-router.md`; it only
-  exercises messages the heuristics leave unresolved.
+  exercises messages the heuristics leave unresolved. `npm run eval:apply`
+  scores form-field mapping on live application forms (read-only, never fills
+  or submits) plus synthetic submit-readiness states against
+  `eval/apply-cases.ts` and rewrites `eval/report-apply.md`; the auto-submit
+  gate passes only with zero confident misses on required fields and a clean
+  readiness run. Auto-submit itself stays behind `FORM_AUTO_APPLY=on` even
+  when the gate passes.
 - If a new field is worth showing, add it to the shared type, the normaliser and
   the prompt together. Never invent a field in the renderer.
 

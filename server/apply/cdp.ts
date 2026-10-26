@@ -17,6 +17,7 @@ export class CdpError extends Error {
 type Pending = {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
+  method: string
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
@@ -29,8 +30,13 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
 
 export type CdpConnection = {
   socket: WebSocket
-  sessionId: string
-  send: (method: string, params?: Record<string, unknown>) => Promise<unknown>
+  send: (
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ) => Promise<unknown>
+  listTargets: () => Promise<{ type?: string; targetId?: string; url?: string }[]>
+  attach: (targetId: string) => Promise<string>
   close: () => void
 }
 
@@ -75,7 +81,11 @@ export async function connectCdp(connectUrl: string, timeoutMs = 30_000): Promis
     const waiter = pending.get(message.id)
     if (!waiter) return
     pending.delete(message.id)
-    if (message.error) waiter.reject(new CdpError(message.error.message || 'Browser call failed.'))
+    if (message.error) {
+      waiter.reject(
+        new CdpError(`${message.error.message || 'Browser call failed.'} [method=${waiter.method}]`),
+      )
+    }
     else waiter.resolve(message.result)
   }
   socket.onerror = () => {
@@ -88,7 +98,7 @@ export async function connectCdp(connectUrl: string, timeoutMs = 30_000): Promis
   const send = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
     new Promise<unknown>((resolve, reject) => {
       const id = nextId++
-      pending.set(id, { resolve, reject })
+      pending.set(id, { resolve, reject, method })
       socket.send(
         JSON.stringify(
           sessionId ? { id, method, params, sessionId } : { id, method, params },
@@ -96,36 +106,33 @@ export async function connectCdp(connectUrl: string, timeoutMs = 30_000): Promis
       )
     })
 
-  const targets = (await send('Target.getTargets')) as {
-    targetInfos?: { type?: string; targetId?: string; url?: string }[]
-  }
-  const pageTarget = (targets.targetInfos ?? []).find(
-    (target) => target.type === 'page' && target.targetId,
-  )
-  if (!pageTarget?.targetId) {
-    socket.close()
-    throw new CdpError('The browser session has no page.')
+  const listTargets = async () => {
+    const targets = (await send('Target.getTargets')) as {
+      targetInfos?: { type?: string; targetId?: string; url?: string }[]
+    }
+    return targets.targetInfos ?? []
   }
 
-  const attached = (await send('Target.attachToTarget', {
-    targetId: pageTarget.targetId,
-    flatten: true,
-  })) as { sessionId?: string }
-  if (!attached.sessionId) {
-    socket.close()
-    throw new CdpError('Could not attach to the browser page.')
+  const attach = async (targetId: string) => {
+    const attached = (await send('Target.attachToTarget', {
+      targetId,
+      flatten: true,
+    })) as { sessionId?: string }
+    if (!attached.sessionId) {
+      throw new CdpError('Could not attach to the browser page.')
+    }
+    const bound = (method: string, params: Record<string, unknown> = {}) =>
+      send(method, params, attached.sessionId)
+    await bound('Page.enable')
+    await bound('DOM.enable')
+    return attached.sessionId as string
   }
-  const sessionId = attached.sessionId
-  const bound = (method: string, params: Record<string, unknown> = {}) =>
-    send(method, params, sessionId)
-
-  await bound('Page.enable')
-  await bound('DOM.enable')
 
   return {
     socket,
-    sessionId,
-    send: bound,
+    send,
+    listTargets,
+    attach,
     close: () => {
       try {
         socket.close()
@@ -136,22 +143,37 @@ export async function connectCdp(connectUrl: string, timeoutMs = 30_000): Promis
   }
 }
 
-export type CdpPage = {
-  send: CdpConnection['send']
-  navigate: (url: string, timeoutMs?: number) => Promise<void>
+export type CdpFrame = {
+  sessionId: string
+  send: (method: string, params?: Record<string, unknown>) => Promise<unknown>
   evaluate: <T>(expression: string) => Promise<T>
+}
+
+export type CdpPage = CdpFrame & {
+  navigate: (url: string, timeoutMs?: number) => Promise<void>
   waitReady: (timeoutMs?: number) => Promise<void>
 }
 
-export function pageFromConnection(connection: CdpConnection): CdpPage {
+export function frameFromSession(
+  connection: CdpConnection,
+  sessionId: string,
+): CdpFrame {
+  const send = (method: string, params: Record<string, unknown> = {}) =>
+    connection.send(method, params, sessionId)
   const evaluate = async <T>(expression: string) => {
-    const result = (await connection.send('Runtime.evaluate', {
+    const result = (await send('Runtime.evaluate', {
       expression,
       awaitPromise: true,
       returnByValue: true,
     })) as { result?: { value?: T } }
     return result.result?.value as T
   }
+  return { sessionId, send, evaluate }
+}
+
+export function pageFromSession(connection: CdpConnection, sessionId: string): CdpPage {
+  const frame = frameFromSession(connection, sessionId)
+  const { send, evaluate } = frame
 
   const waitReady = async (timeoutMs = 30_000) => {
     const started = Date.now()
@@ -166,13 +188,12 @@ export function pageFromConnection(connection: CdpConnection): CdpPage {
   }
 
   return {
-    send: connection.send,
-    evaluate,
+    ...frame,
     waitReady,
     navigate: async (url: string, timeoutMs = 45_000) => {
       await withTimeout(
         (async () => {
-          await connection.send('Page.navigate', { url })
+          await send('Page.navigate', { url })
           await waitReady(timeoutMs)
         })(),
         timeoutMs + 15_000,
@@ -190,10 +211,10 @@ export function refSelector(refNumber: number) {
 
 /** Resolve a stamped element to clickable viewport coordinates. */
 export async function centerOfRef(
-  page: CdpPage,
+  frame: CdpFrame,
   refNumber: number,
 ): Promise<ElementCenter | null> {
-  const point = await page
+  const point = await frame
     .evaluate<{ x?: number; y?: number }>(
       `(() => {
         const el = document.querySelector(${JSON.stringify(refSelector(refNumber))});
