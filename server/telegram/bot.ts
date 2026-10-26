@@ -453,9 +453,10 @@ async function deliverPrepared(
   formMap: FormMap | null = null,
 ) {
   const form = prepared.application.form
+  const formAuto = process.env.FORM_AUTO_APPLY === 'on'
   if (form?.supported && !form.appliedAt) {
     const needs = (formMap?.fields ?? []).filter((field) => field.needsYou)
-    if (link.autoApply && formMap && needs.length === 0) {
+    if (link.autoApply && formAuto && formMap && needs.length === 0) {
       await edit('Ready. Filling the form automatically…')
       await applyPrepared(ctx, link, prepared.application.id, undefined, chatId)
       return

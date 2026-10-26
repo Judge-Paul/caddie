@@ -1,4 +1,4 @@
-import { centerOfRef, refSelector, type CdpPage } from './cdp'
+import { centerOfRef, refSelector, type CdpFrame } from './cdp'
 
 export type FillAction =
   | { type: 'text'; text: string }
@@ -20,30 +20,30 @@ function clean(value: string) {
 }
 
 export async function readBack(
-  page: CdpPage,
+  frame: CdpFrame,
   refNumber: number,
   kind: string,
 ): Promise<string | null> {
   const selector = refSelector(refNumber)
   try {
     if (kind === 'select') {
-      return await page.evaluate<string>(
+      return await frame.evaluate<string>(
         `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!(el instanceof HTMLSelectElement)) return ''; return el.selectedOptions.length ? [...el.selectedOptions].map(o => o.text).join(', ') : ''; })()`,
       )
     }
     if (kind === 'file') {
-      const count = await page.evaluate<number>(
+      const count = await frame.evaluate<number>(
         `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el instanceof HTMLInputElement ? (el.files?.length ?? 0) : 0; })()`,
       )
       return count > 0 ? 'attached' : ''
     }
     if (kind === 'checkbox' || kind === 'radio-group') {
-      const checked = await page.evaluate<boolean>(
+      const checked = await frame.evaluate<boolean>(
         `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el instanceof HTMLInputElement ? el.checked : false; })()`,
       )
       return checked ? 'checked' : null
     }
-    const value = await page.evaluate<string>(
+    const value = await frame.evaluate<string>(
       `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value; return el?.textContent ?? ''; })()`,
     )
     return clean(String(value ?? ''))
@@ -52,9 +52,9 @@ export async function readBack(
   }
 }
 
-async function focusRef(page: CdpPage, refNumber: number) {
+async function focusRef(frame: CdpFrame, refNumber: number) {
   const selector = refSelector(refNumber)
-  const focused = await page.evaluate<boolean>(
+  const focused = await frame.evaluate<boolean>(
     `(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (el instanceof HTMLElement) { el.scrollIntoView({ block: 'center' }); el.focus(); return true; }
@@ -64,24 +64,24 @@ async function focusRef(page: CdpPage, refNumber: number) {
   if (!focused) throw new Error('Field is not available.')
 }
 
-async function clickRef(page: CdpPage, refNumber: number) {
-  const center = await centerOfRef(page, refNumber)
+async function clickRef(frame: CdpFrame, refNumber: number) {
+  const center = await centerOfRef(frame, refNumber)
   if (!center) {
     // Fall back to an in-page click when the element has no box.
-    const clicked = await page.evaluate<boolean>(
+    const clicked = await frame.evaluate<boolean>(
       `(() => { const el = document.querySelector(${JSON.stringify(refSelector(refNumber))}); if (el instanceof HTMLElement) { el.click(); return true; } return false; })()`,
     )
     if (!clicked) throw new Error('Control is not available.')
     return
   }
-  await page.send('Input.dispatchMouseEvent', {
+  await frame.send('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x: center.x,
     y: center.y,
     button: 'left',
     clickCount: 1,
   })
-  await page.send('Input.dispatchMouseEvent', {
+  await frame.send('Input.dispatchMouseEvent', {
     type: 'mouseReleased',
     x: center.x,
     y: center.y,
@@ -90,9 +90,9 @@ async function clickRef(page: CdpPage, refNumber: number) {
   })
 }
 
-async function clickOptionByLabel(page: CdpPage, refNumber: number, label: string) {
+async function clickOptionByLabel(frame: CdpFrame, refNumber: number, label: string) {
   const option = label.toLowerCase()
-  const clicked = await page.evaluate<boolean>(
+  const clicked = await frame.evaluate<boolean>(
     `(() => {
       const root = document.querySelector(${JSON.stringify(refSelector(refNumber))});
       if (!root) return false;
@@ -117,24 +117,24 @@ async function clickOptionByLabel(page: CdpPage, refNumber: number, label: strin
 }
 
 export async function performFill(
-  page: CdpPage,
+  frame: CdpFrame,
   refNumber: number,
   kind: string,
   action: FillAction,
 ): Promise<{ ok: boolean; readBack: string | null }> {
   if (action.type === 'check') {
-    await clickRef(page, refNumber)
-    const back = await readBack(page, refNumber, kind)
+    await clickRef(frame, refNumber)
+    const back = await readBack(frame, refNumber, kind)
     return { ok: back === 'checked', readBack: back }
   }
 
   if (action.type === 'radio') {
-    await clickOptionByLabel(page, refNumber, action.option)
+    await clickOptionByLabel(frame, refNumber, action.option)
     return { ok: true, readBack: action.option }
   }
 
   if (action.type === 'select') {
-    const matched = await page.evaluate<string | null>(
+    const matched = await frame.evaluate<string | null>(
       `(() => {
         const el = document.querySelector(${JSON.stringify(refSelector(refNumber))});
         if (!(el instanceof HTMLSelectElement)) return null;
@@ -153,9 +153,9 @@ export async function performFill(
     return { ok: true, readBack: clean(matched) }
   }
 
-  await focusRef(page, refNumber)
-  await page.send('Input.insertText', { text: action.text })
-  const back = await readBack(page, refNumber, kind)
+  await focusRef(frame, refNumber)
+  await frame.send('Input.insertText', { text: action.text })
+  const back = await readBack(frame, refNumber, kind)
   return { ok: back !== null && back === clean(action.text), readBack: back }
 }
 
@@ -165,8 +165,8 @@ export type Blockers = {
   loginWall: boolean
 }
 
-export async function detectBlockers(page: CdpPage): Promise<Blockers> {
-  return page
+export async function detectBlockers(frame: CdpFrame): Promise<Blockers> {
+  return frame
     .evaluate<Blockers>(
       `(() => {
         const passwordFields = document.querySelectorAll('input[type="password"]').length;
@@ -184,22 +184,22 @@ export async function detectBlockers(page: CdpPage): Promise<Blockers> {
 }
 
 export async function clickSubmit(
-  page: CdpPage,
+  frame: CdpFrame,
   submits: { ref: number; label: string }[],
 ): Promise<{ url: string; navigated: boolean }> {
-  const before = await page.evaluate<string>('location.href').catch(() => '')
+  const before = await frame.evaluate<string>('location.href').catch(() => '')
   if (submits.length > 0) {
-    await clickRef(page, submits[0].ref)
+    await clickRef(frame, submits[0].ref)
   } else {
-    await clickOptionByLabelFallback(page)
+    await clickOptionByLabelFallback(frame)
   }
   await sleep(3_000)
-  const after = await page.evaluate<string>('location.href').catch(() => before)
+  const after = await frame.evaluate<string>('location.href').catch(() => before)
   return { url: after, navigated: after !== before }
 }
 
-async function clickOptionByLabelFallback(page: CdpPage) {
-  const clicked = await page.evaluate<boolean>(
+async function clickOptionByLabelFallback(frame: CdpFrame) {
+  const clicked = await frame.evaluate<boolean>(
     `(() => {
       const candidates = [
         ...document.querySelectorAll('button[type="submit"], input[type="submit"]'),
@@ -217,16 +217,16 @@ async function clickOptionByLabelFallback(page: CdpPage) {
   if (!clicked) throw new Error('No submit control was found.')
 }
 
-export async function visibleText(page: CdpPage, maxChars = 4_000) {
-  return page
+export async function visibleText(frame: CdpFrame, maxChars = 4_000) {
+  return frame
     .evaluate<string>(
       `(() => (document.body?.innerText ?? '').slice(0, ${Math.max(500, Math.min(20_000, maxChars))}))()`,
     )
     .catch(() => '')
 }
 
-export async function takeScreenshot(page: CdpPage) {
-  const result = (await page.send('Page.captureScreenshot', {
+export async function takeScreenshot(frame: CdpFrame) {
+  const result = (await frame.send('Page.captureScreenshot', {
     format: 'png',
   })) as { data?: string }
   if (!result.data) throw new Error('Screenshot failed.')
@@ -262,24 +262,24 @@ export async function uploadSessionFile(
 }
 
 export async function selectRemoteFile(
-  page: CdpPage,
+  frame: CdpFrame,
   refNumber: number,
   remotePath: string,
 ): Promise<boolean> {
-  const doc = (await page.send('DOM.getDocument', { depth: 0 })) as {
+  const doc = (await frame.send('DOM.getDocument', { depth: 0 })) as {
     root?: { nodeId?: number }
   }
   const rootId = doc.root?.nodeId
   if (typeof rootId !== 'number') return false
-  const found = (await page.send('DOM.querySelector', {
+  const found = (await frame.send('DOM.querySelector', {
     nodeId: rootId,
     selector: refSelector(refNumber),
   })) as { nodeId?: number }
   if (typeof found.nodeId !== 'number' || found.nodeId === 0) return false
-  await page.send('DOM.setFileInputFiles', {
+  await frame.send('DOM.setFileInputFiles', {
     files: [remotePath],
     nodeId: found.nodeId,
   })
-  const back = await readBack(page, refNumber, 'file')
+  const back = await readBack(frame, refNumber, 'file')
   return back === 'attached'
 }
