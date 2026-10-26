@@ -19,6 +19,7 @@ import {
   normaliseClassification,
   type ClassificationResult,
 } from '../shared/jd-classification'
+import { getApplicant } from './applicant'
 import { mongo, type MongoContext } from './mongo'
 import {
   PublicWorkInputError,
@@ -63,6 +64,7 @@ type ProfileDoc = {
   userId: string
   cv: StoredCv | null
   publicWork?: PublicWork | null
+  applicantCiphertext?: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -210,7 +212,7 @@ export async function getMe(
   user: AccountUser,
 ): Promise<Omit<AccountMe, 'sending'>> {
   const store = requireMongo()
-  const [profile, applications, stories, telegram] = await Promise.all([
+  const [profile, applications, stories, telegram, applicant] = await Promise.all([
     profileOf(userId),
     store.db
       .collection<ApplicationDoc>('applications')
@@ -224,6 +226,7 @@ export async function getMe(
       .project<CvStory>({ _id: 0, userId: 0 })
       .toArray(),
     telegramStatus(userId),
+    getApplicant(userId).catch(() => null),
   ])
 
   return {
@@ -233,6 +236,7 @@ export async function getMe(
     stories,
     publicWork: profile?.publicWork ?? emptyPublicWork(),
     telegram,
+    applicant,
   }
 }
 

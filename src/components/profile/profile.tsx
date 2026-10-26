@@ -6,14 +6,16 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Eyebrow, Notice } from '@/components/ui/section'
 import { Input } from '@/components/ui/input'
 import {
+  deleteApplicant,
   deleteSending,
   deleteStory,
+  saveApplicant,
   saveSending,
   saveStory,
   testSending,
   unlinkTelegram,
 } from '@/lib/account'
-import type { AccountMe } from '@shared/account'
+import { EEO_DECLINE, type AccountMe, type WorkAuthorization } from '@shared/account'
 import type { CvStory } from '@shared/cv-fit'
 import {
   AlertCircle,
@@ -260,6 +262,323 @@ function ExperienceDialog({
         </div>
       </div>
     </>
+  )
+}
+
+const AUTHORIZATION_OPTIONS: { value: '' | WorkAuthorization; label: string }[] = [
+  { value: '', label: 'Select…' },
+  { value: 'citizen', label: 'Citizen' },
+  { value: 'permanent_resident', label: 'Permanent resident' },
+  { value: 'authorized_no_sponsorship', label: 'Authorized — no sponsorship needed' },
+  { value: 'needs_sponsorship', label: 'Need sponsorship' },
+]
+
+function eeoOptions(values: string[]) {
+  return [
+    { value: '', label: 'Select…' },
+    ...values.map((value) => ({ value, label: value })),
+    { value: EEO_DECLINE, label: 'Decline to self-identify' },
+  ]
+}
+
+const EEO_FIELDS = [
+  { key: 'eeoGender', label: 'Gender', options: eeoOptions(['Female', 'Male', 'Non-binary']) },
+  { key: 'eeoVeteran', label: 'Veteran status', options: eeoOptions(['Veteran', 'Not a veteran']) },
+  { key: 'eeoDisability', label: 'Disability', options: eeoOptions(['Yes, I have a disability', 'No, I do not have a disability']) },
+  {
+    key: 'eeoRace',
+    label: 'Race or ethnicity',
+    options: eeoOptions([
+      'Asian',
+      'Black or African American',
+      'Hispanic or Latino',
+      'White',
+      'Native Hawaiian or Pacific Islander',
+      'American Indian or Alaska Native',
+      'Two or more races',
+    ]),
+  },
+] as const
+
+type ApplicantForm = {
+  phone: string
+  city: string
+  country: string
+  address: string
+  authorization: '' | WorkAuthorization
+  salary: string
+  noticePeriod: string
+  linkedin: string
+  eeoGender: string
+  eeoVeteran: string
+  eeoDisability: string
+  eeoRace: string
+}
+
+function ApplicantDetails({
+  applicant,
+  onRefreshMe,
+}: {
+  applicant: AccountMe['applicant']
+  onRefreshMe: () => Promise<void>
+}) {
+  const [form, setForm] = useState<ApplicantForm>(() => ({
+    phone: applicant?.phone ?? '',
+    city: applicant?.city ?? '',
+    country: applicant?.country ?? '',
+    address: applicant?.address ?? '',
+    authorization: applicant?.authorization ?? '',
+    salary: applicant?.salary ?? '',
+    noticePeriod: applicant?.noticePeriod ?? '',
+    linkedin: applicant?.linkedin ?? '',
+    eeoGender: applicant?.eeoGender ?? '',
+    eeoVeteran: applicant?.eeoVeteran ?? '',
+    eeoDisability: applicant?.eeoDisability ?? '',
+    eeoRace: applicant?.eeoRace ?? '',
+  }))
+  const [busy, setBusy] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+
+  function set(key: keyof ApplicantForm, value: string) {
+    setForm((current) => ({ ...current, [key]: value }))
+    setError('')
+  }
+
+  async function handleSave() {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await saveApplicant({
+        phone: form.phone,
+        city: form.city,
+        country: form.country,
+        address: form.address,
+        authorization: form.authorization || null,
+        salary: form.salary,
+        noticePeriod: form.noticePeriod,
+        linkedin: form.linkedin,
+        eeoGender: form.eeoGender || null,
+        eeoVeteran: form.eeoVeteran || null,
+        eeoDisability: form.eeoDisability || null,
+        eeoRace: form.eeoRace || null,
+      })
+      setNotice('Application details saved.')
+      await onRefreshMe()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Those details could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleClear() {
+    setBusy(true)
+    setError('')
+    try {
+      await deleteApplicant()
+      setForm({
+        phone: '', city: '', country: '', address: '', authorization: '',
+        salary: '', noticePeriod: '', linkedin: '',
+        eeoGender: '', eeoVeteran: '', eeoDisability: '', eeoRace: '',
+      })
+      setConfirmClear(false)
+      setNotice('Application details removed.')
+      await onRefreshMe()
+    } catch (caught) {
+      setConfirmClear(false)
+      setError(caught instanceof Error ? caught.message : 'Those details could not be removed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputClass =
+    'mt-1.5 h-9 w-full rounded-lg border border-border bg-background px-2.5 text-[12px] text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50'
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Eyebrow>Application details</Eyebrow>
+          <p className="mt-1 max-w-[52ch] text-[11.5px] leading-[1.45] text-muted-foreground">
+            What application forms ask for beyond the CV. Caddie fills forms
+            with these only when you ask it to apply, and never sends them
+            anywhere else.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Phone
+          </span>
+          <Input
+            type="tel"
+            value={form.phone}
+            onChange={(event) => set('phone', event.target.value)}
+            placeholder="+49 170 000 000"
+            autoComplete="tel"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            LinkedIn
+          </span>
+          <Input
+            value={form.linkedin}
+            onChange={(event) => set('linkedin', event.target.value)}
+            placeholder="linkedin.com/in/you"
+            autoComplete="url"
+            spellCheck={false}
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            City
+          </span>
+          <Input
+            value={form.city}
+            onChange={(event) => set('city', event.target.value)}
+            placeholder="Berlin"
+            autoComplete="address-level2"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Country
+          </span>
+          <Input
+            value={form.country}
+            onChange={(event) => set('country', event.target.value)}
+            placeholder="Germany"
+            autoComplete="country-name"
+            className={inputClass}
+          />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Street address
+          </span>
+          <Input
+            value={form.address}
+            onChange={(event) => set('address', event.target.value)}
+            placeholder="Street and postal code"
+            autoComplete="street-address"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Work authorization
+          </span>
+          <select
+            value={form.authorization}
+            onChange={(event) => set('authorization', event.target.value)}
+            className={inputClass}
+          >
+            {AUTHORIZATION_OPTIONS.map((option) => (
+              <option key={option.label} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Salary expectation
+          </span>
+          <Input
+            value={form.salary}
+            onChange={(event) => set('salary', event.target.value)}
+            placeholder="€80,000"
+            className={inputClass}
+          />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Notice period
+          </span>
+          <Input
+            value={form.noticePeriod}
+            onChange={(event) => set('noticePeriod', event.target.value)}
+            placeholder="4 weeks"
+            className={inputClass}
+          />
+        </label>
+        {EEO_FIELDS.map((field) => (
+          <label key={field.key} className="block">
+            <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+              {field.label}
+            </span>
+            <select
+              value={form[field.key]}
+              onChange={(event) => set(field.key, event.target.value)}
+              className={inputClass}
+            >
+              {field.options.map((option) => (
+                <option key={option.label} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+
+      {error ? (
+        <Notice className="mt-3">{error}</Notice>
+      ) : notice ? (
+        <Notice tone="success" className="mt-3">
+          {notice}
+        </Notice>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
+        <Button size="sm" className="max-sm:h-11" onClick={() => void handleSave()} disabled={busy}>
+          {busy ? <LoaderCircle className="animate-spin" /> : null}
+          Save details
+        </Button>
+        {applicant ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive max-sm:h-11"
+            onClick={() => setConfirmClear(true)}
+            disabled={busy}
+          >
+            Remove
+          </Button>
+        ) : null}
+      </div>
+
+      <p className="mt-2 flex items-start gap-2 text-[10px] leading-[1.45] text-muted-foreground">
+        <ShieldCheck className="mt-px size-3.5 shrink-0 text-success" strokeWidth={1.75} />
+        <span>
+          Stored encrypted on the server. Equal-opportunity answers are reused
+          as they are, including declines.
+        </span>
+      </p>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Remove application details?"
+        description="Caddie will no longer fill forms with these. Saved applications keep what they already sent."
+        confirmLabel="Remove details"
+        busy={busy}
+        destructive
+        onConfirm={() => void handleClear()}
+        onClose={() => {
+          if (!busy) setConfirmClear(false)
+        }}
+      />
+    </section>
   )
 }
 
@@ -620,6 +939,8 @@ export function Profile({ me, onUploadCv, onRefreshMe }: ProfileProps) {
                 <PublicWork bare me={me} onRefreshMe={onRefreshMe} />
               </div>
             </section>
+
+            <ApplicantDetails applicant={me.applicant} onRefreshMe={onRefreshMe} />
           </div>
 
           <aside className="min-w-0 lg:sticky lg:top-20">

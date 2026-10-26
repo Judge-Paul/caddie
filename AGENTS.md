@@ -163,8 +163,9 @@ entrance animations on load, no bouncing.
   `/api/research`) requires a session.
 - The dashboard lists applications in a table and creates one from a pasted
   posting. The workspace is scoped to that application. **Profile** holds the
-  material (the CV, plus Experience with stories and the links Caddie has
-  read) and the connections (Sending and Telegram).
+  material (the CV, Experience with stories and the links Caddie has read,
+  plus the application details forms are filled with) and the connections
+  (Sending and Telegram).
 - **Base CV files live in private Cloudflare R2**, with Mongo storing the
   object keys. Creating an application copies the base CV object so later
   replacing the profile CV does not rewrite old applications. Each application

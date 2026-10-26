@@ -77,6 +77,7 @@ import {
   updateTelegramIdentity,
 } from './telegram/links'
 import { sendTelegramText, telegramChatInfo } from './telegram/api'
+import { deleteApplicant, saveApplicant } from './applicant'
 import {
   deleteSending,
   deleteSendingKey,
@@ -658,6 +659,32 @@ app.put('/api/me/sending', async (c) => {
       apiKey: typeof body.apiKey === 'string' ? body.apiKey : undefined,
     })
     return c.json({ sending })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.put('/api/me/applicant', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return c.json({ error: 'Add the application details first.' }, 400)
+  }
+
+  try {
+    const session = c.get('session')
+    return c.json({
+      applicant: await saveApplicant(session.user.id, body),
+    })
+  } catch (error) {
+    return cvFailure(c, error)
+  }
+})
+
+app.delete('/api/me/applicant', async (c) => {
+  try {
+    const session = c.get('session')
+    await deleteApplicant(session.user.id)
+    return c.json({ applicant: null })
   } catch (error) {
     return cvFailure(c, error)
   }

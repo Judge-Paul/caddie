@@ -104,8 +104,9 @@ npm run eval     # score Gemma/JEV against eval/corpus.ts
 - **Application workbench**: open a role to see the next steps and the fit
   before the raw CV. Tabs hold Plan, CV, Letter and Email; the posting stays
   alongside with its coverage marks and company research.
-- **Profile**: the CV, Experience with the links Caddie has read, and the
-  Sending and Telegram connections. Experiences are your own words about work
+- **Profile**: the CV, Experience with the links Caddie has read, the
+  application details forms are filled with, and the Sending and Telegram
+  connections. Experiences are your own words about work
   you actually did; they ground CV bullets, letters and email drafts. Sending
   is a saved connection, not an empty form: once added, Profile shows the from
   address, verified domain and key suffix, with Edit and Remove actions.

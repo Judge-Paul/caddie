@@ -72,6 +72,54 @@ export type SavePublicWorkInput = {
   github: string | null
 }
 
+export type WorkAuthorization =
+  | 'citizen'
+  | 'permanent_resident'
+  | 'authorized_no_sponsorship'
+  | 'needs_sponsorship'
+
+/** Stored EEO choice; DECLINE means "decline to self-identify". */
+export const EEO_DECLINE = 'decline'
+
+/**
+ * The facts a job form asks for that the CV does not reliably hold.
+ * Encrypted at rest; the account owner edits it in Profile, and only the
+ * server-side form filler reads it back for an application.
+ */
+export type ApplicantProfile = {
+  phone: string | null
+  city: string | null
+  country: string | null
+  address: string | null
+  authorization: WorkAuthorization | null
+  salary: string | null
+  noticePeriod: string | null
+  linkedin: string | null
+  eeoGender: string | null
+  eeoVeteran: string | null
+  eeoDisability: string | null
+  eeoRace: string | null
+}
+
+export type SaveApplicantProfileInput = Partial<
+  Pick<
+    ApplicantProfile,
+    | 'phone'
+    | 'city'
+    | 'country'
+    | 'address'
+    | 'salary'
+    | 'noticePeriod'
+    | 'linkedin'
+    | 'eeoGender'
+    | 'eeoVeteran'
+    | 'eeoDisability'
+    | 'eeoRace'
+  >
+> & {
+  authorization?: WorkAuthorization | null
+}
+
 export type TelegramStatus = {
   connected: boolean
   botUrl: string | null
@@ -121,6 +169,7 @@ export type AccountMe = {
   publicWork: PublicWork
   telegram: TelegramStatus
   sending: SendingSettings
+  applicant: ApplicantProfile | null
 }
 
 export type CreateApplicationInput = {

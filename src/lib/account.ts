@@ -2,11 +2,13 @@ import type {
   AccountCv,
   AccountCvKind,
   AccountMe,
+  ApplicantProfile,
   ApplicationDetail,
   ApplicationSummary,
   ComposeKind,
   CreateApplicationInput,
   PublicWork,
+  SaveApplicantProfileInput,
   SavePublicWorkInput,
   SaveSendingInput,
   SendApplicationInput,
@@ -118,6 +120,17 @@ export function savePublicWork(input: SavePublicWorkInput) {
     method: 'PUT',
     body: JSON.stringify(input),
   })
+}
+
+export function saveApplicant(input: SaveApplicantProfileInput) {
+  return request<{ applicant: ApplicantProfile }>('/api/me/applicant', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteApplicant() {
+  return request<{ applicant: null }>('/api/me/applicant', { method: 'DELETE' })
 }
 
 export function saveSending(input: SaveSendingInput) {
