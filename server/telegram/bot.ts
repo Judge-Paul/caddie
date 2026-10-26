@@ -19,7 +19,9 @@ import { getSending } from '../sending'
 import { scoreRequirements } from '../../src/lib/match'
 import { sendApplication } from '../send'
 import { ingestCv } from '../cv/ingest'
+import { classifyAts } from '../../shared/application-form'
 import { createPreviewToken } from '../preview-token'
+import { intakeLinkApplication, LinkNotPostingError } from '../link-intake'
 import { consumeRateLimit } from '../rate-limit'
 import { TelegramApiError, downloadTelegramFile } from './api'
 import {
@@ -29,7 +31,7 @@ import {
   updateTelegramIdentity,
   type TelegramLinkDoc,
 } from './links'
-import { routeTelegramText } from './router'
+import { isBareLink, routeTelegramText } from './router'
 import {
   clearTelegramSession,
   getTelegramSession,
@@ -308,36 +310,97 @@ async function runIntake(
       applicantName: user.name,
       onProgress: edit,
     })
+    await deliverPrepared(ctx, link, prepared, chatId, edit)
+  } catch (error) {
+    await edit(
+      `I could not prepare that application: ${
+        error instanceof Error ? error.message : 'unknown error'
+      }`,
+    )
+    await clearTelegramSession(chatId)
+  }
+}
 
-    if (link.autoApply) {
-      const recipient =
-        prepared.recipient || prepared.application.emailDraft?.to.trim()
-      await edit('Ready. Applying automatically…')
-      if (!recipient) {
-        await saveTelegramSession(chatId, link.userId, {
-          activeApplicationId: prepared.application.id,
-          state: 'awaiting_email',
-          pendingEmail: '',
-        })
-        await ctx.reply(
-          `I prepared ${appName(prepared.application)} but could not find an application email. Send the address to use, or say cancel.`,
-          {
-            reply_markup: linksKeyboard(
-              link.userId,
-              prepared.application.id,
-              Boolean(prepared.application.coverLetter?.text.trim()),
-            ),
-          },
-        )
-        return
-      }
-      await applyPrepared(ctx, link, prepared.application.id, recipient, chatId)
+async function deliverPrepared(
+  ctx: Context,
+  link: TelegramLinkDoc,
+  prepared: PreparedApplication,
+  chatId: string,
+  edit: (message: string) => Promise<void>,
+) {
+  if (link.autoApply) {
+    const recipient =
+      prepared.recipient || prepared.application.emailDraft?.to.trim()
+    await edit('Ready. Applying automatically…')
+    if (!recipient) {
+      await saveTelegramSession(chatId, link.userId, {
+        activeApplicationId: prepared.application.id,
+        state: 'awaiting_email',
+        pendingEmail: '',
+      })
+      await ctx.reply(
+        `I prepared ${appName(prepared.application)} but could not find an application email. Send the address to use, or say cancel.`,
+        {
+          reply_markup: linksKeyboard(
+            link.userId,
+            prepared.application.id,
+            Boolean(prepared.application.coverLetter?.text.trim()),
+          ),
+        },
+      )
       return
     }
+    await applyPrepared(ctx, link, prepared.application.id, recipient, chatId)
+    return
+  }
 
-    await edit('Application ready for review.')
-    await sendPreview(ctx, link, prepared, chatId)
+  await edit('Application ready for review.')
+  await sendPreview(ctx, link, prepared, chatId)
+}
+
+async function runLinkIntake(
+  ctx: Context,
+  link: TelegramLinkDoc,
+  user: { name: string },
+  url: string,
+  chatId: string,
+) {
+  const existing = await sessionFor(link, chatId)
+  if (existing?.state === 'running') {
+    await ctx.reply('I am still working on the previous application. I will message you when it is ready.')
+    return
+  }
+
+  await saveTelegramSession(chatId, link.userId, {
+    state: 'running',
+    activeApplicationId: null,
+    pendingEmail: null,
+  })
+
+  const status = await ctx.reply('Reading the linked posting…')
+  const edit = async (message: string) => {
+    await ctx.api
+      .editMessageText(chatId, status.message_id, message)
+      .catch(() => {})
+  }
+
+  try {
+    const prepared = await intakeLinkApplication(link.userId, url, {
+      applicantName: user.name,
+      onProgress: edit,
+    })
+    await deliverPrepared(ctx, link, prepared, chatId, edit)
   } catch (error) {
+    if (error instanceof LinkNotPostingError) {
+      const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`
+      if (classifyAts(withScheme) === null) {
+        await edit('That page is not a job posting. Trying it as a link instead…')
+        const github = /github\.com/i.test(withScheme) ? withScheme : null
+        await handleSetLinks(ctx, link, github ? null : withScheme, github)
+        await clearTelegramSession(chatId)
+        return
+      }
+    }
     await edit(
       `I could not prepare that application: ${
         error instanceof Error ? error.message : 'unknown error'
@@ -844,6 +907,17 @@ export function createTelegramBot(token: string) {
       await ctx.reply(
         `Too many requests. Wait ${routerQuota.retryAfter} seconds and try again.`,
       )
+      return
+    }
+
+    if (isBareLink(text)) {
+      const me = await getMe(link.userId, user)
+      if (!me.cv) {
+        await ctx.reply('Send your CV as a DOCX or PDF document first.')
+        return
+      }
+      await remember(chatId, link, session, text, 'Reading the linked posting.')
+      await runLinkIntake(ctx, link, user, text, chatId)
       return
     }
 

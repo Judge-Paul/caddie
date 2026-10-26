@@ -1,4 +1,5 @@
 import type { TelegramHistoryMessage } from './store'
+import { classifyAts } from '../../shared/application-form'
 import { runChat, runClef } from '../cloudflare'
 import { readConfig } from '../env'
 import { PROMPT_SAFETY, untrusted } from '../prompt-safety'
@@ -178,18 +179,26 @@ function extractLinks(text: string): { website: string | null; github: string | 
   return { website, github }
 }
 
+const BARE_LINK =
+  /^(https?:\/\/[^\s)]+|www\.[^\s)]+|github\.com\/[^\s)]+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[^\s)]*)?)$/i
+
+/** A message that is only a link: a candidate for link intake, not chat. */
+export function isBareLink(text: string) {
+  return BARE_LINK.test(text.trim())
+}
+
 function setLinksMatch(text: string): TelegramIntent | null {
   const value = text.trim()
   const { website, github } = extractLinks(value)
   if (!website && !github) return null
+  // Application links belong to link intake, never to public work.
+  const candidate = website ?? github
+  if (candidate && classifyAts(candidate) !== null) return null
   const hasVerb =
     /\b(add|set|save|read|use|connect|update|here'?s my|my (github|website|site|portfolio|page|profile|link) (is|=|:))\b/i.test(
       value,
     )
-  const isBareUrl = /^(https?:\/\/[^\s)]+|www\.[^\s)]+|github\.com\/[^\s)]+|[a-z0-9-]+(?:\.[a-z0-9-]+)+\.[a-z]{2,}(?:\/[^\s)]*)?)$/i.test(
-    value,
-  )
-  if (!hasVerb && !isBareUrl) {
+  if (!hasVerb && !isBareLink(value)) {
     if ((website || github) && /\b(repo|repository|mine)\b/i.test(value)) {
       return { type: 'set_links', website, github }
     }
