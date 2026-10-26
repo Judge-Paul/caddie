@@ -361,7 +361,8 @@ that `src/lib/match.ts` scores against the CV.
   `eval/apply-cases.ts` and rewrites `eval/report-apply.md`; the auto-submit
   gate passes only with zero confident misses on required fields and a clean
   readiness run. Auto-submit itself stays behind `FORM_AUTO_APPLY=on` even
-  when the gate passes.
+  when the gate passes. `npm run eval:apply-actor` drives the full actor
+  (snapshot, fill, upload, submit, confirmation) against a synthetic form.
 - If a new field is worth showing, add it to the shared type, the normaliser and
   the prompt together. Never invent a field in the renderer.
 
