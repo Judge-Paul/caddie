@@ -20,10 +20,13 @@ import { scoreRequirements } from '../../src/lib/match'
 import { sendApplication } from '../send'
 import { ingestCv } from '../cv/ingest'
 import { classifyAts } from '../../shared/application-form'
+import { applyToForm, FormNeedsHuman } from '../apply/submit'
+import { mapApplicationForm, type FormMap } from '../apply/map'
 import { createPreviewToken } from '../preview-token'
+import { readConfig } from '../env'
 import { intakeLinkApplication, LinkNotPostingError } from '../link-intake'
 import { consumeRateLimit } from '../rate-limit'
-import { TelegramApiError, downloadTelegramFile } from './api'
+import { TelegramApiError, downloadTelegramFile, sendTelegramPhoto } from './api'
 import {
   telegramLinkForChat,
   telegramLinkUrl,
@@ -152,21 +155,48 @@ async function remember(
   await saveTelegramSession(chatId, link.userId, { history })
 }
 
+function formHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
 async function sendPreview(
   ctx: Context,
   link: TelegramLinkDoc,
   prepared: PreparedApplication,
   chatId: string,
+  formMap: FormMap | null = null,
 ) {
   const application = prepared.application
   const recipient =
     prepared.recipient || application.emailDraft?.to.trim() || null
   const email = application.emailDraft
+  const form = application.form
+  const formLines: string[] =
+    form?.supported && !form.appliedAt
+      ? [
+          `Form: ${formHost(form.url)}`,
+          formMap
+            ? (() => {
+                const needy = formMap.fields.filter((field) => field.needsYou)
+                const done = formMap.fields.length - needy.length
+                if (needy.length === 0) {
+                  return `Form fields: ${done}/${formMap.fields.length} mapped, all covered.`
+                }
+                return `Form fields: ${done}/${formMap.fields.length} mapped — needs: ${needy.map((field) => field.label || field.kind).slice(0, 4).join(', ')}.`
+              })()
+            : 'Form detected — field mapping runs when you apply.',
+        ]
+      : []
   const message = [
     `${appName(application)}`,
     scoreLine(prepared),
     prepared.cvNote,
     gapsLine(prepared),
+    ...formLines,
     recipient
       ? `Email: ${recipient}`
       : 'I could not find an application email in the posting.',
@@ -188,6 +218,70 @@ async function sendPreview(
   })
 }
 
+async function applyForm(
+  ctx: Context,
+  link: TelegramLinkDoc,
+  applicationId: string,
+  chatId: string,
+) {
+  const quota = consumeRateLimit(`telegram-form:${link.userId}`, 2, 60_000)
+  if (!quota.allowed) {
+    await ctx.reply(
+      `Too many form submissions. Wait ${quota.retryAfter} seconds and try again.`,
+    )
+    return
+  }
+  const user = await telegramUser(link)
+  if (!user) {
+    await ctx.reply('Your Caddie account could not be found. Disconnect and connect Telegram again.')
+    return
+  }
+
+  await saveTelegramSession(chatId, link.userId, {
+    state: 'running',
+    activeApplicationId: applicationId,
+    pendingEmail: null,
+  })
+  const status = await ctx.reply('Opening the form and filling it…')
+  const edit = async (message: string) => {
+    await ctx.api
+      .editMessageText(chatId, status.message_id, message)
+      .catch(() => {})
+  }
+  const restore = () =>
+    saveTelegramSession(chatId, link.userId, {
+      state: 'awaiting_approval',
+      activeApplicationId: applicationId,
+      pendingEmail: null,
+    })
+
+  try {
+    const result = await applyToForm(readConfig(), link.userId, applicationId, {
+      applicantName: user.name,
+      email: user.email,
+      onProgress: edit,
+    })
+    await edit(`Applied via form. ${result.confirmation}`)
+    for (const shot of result.screenshots) {
+      await sendTelegramPhoto(chatId, shot).catch(() => {})
+    }
+    await clearTelegramSession(chatId)
+  } catch (error) {
+    if (error instanceof FormNeedsHuman) {
+      await edit(error.message)
+      await ctx.reply(error.liveUrl)
+      await restore()
+      return
+    }
+    await edit(
+      `The form could not be submitted: ${
+        error instanceof Error ? error.message : 'unknown error'
+      }`,
+    )
+    await restore()
+  }
+}
+
 async function applyPrepared(
   ctx: Context,
   link: TelegramLinkDoc,
@@ -204,6 +298,10 @@ async function applyPrepared(
     return
   }
   const application = await getApplication(link.userId, applicationId)
+  if (application.form?.supported && !application.form.appliedAt) {
+    await applyForm(ctx, link, application.id, chat)
+    return
+  }
   if (application.sentAt || application.completedAt) {
     await ctx.reply('That application is already locked.')
     return
@@ -310,7 +408,8 @@ async function runIntake(
       applicantName: user.name,
       onProgress: edit,
     })
-    await deliverPrepared(ctx, link, prepared, chatId, edit)
+    const formMap = await mapForm(link, prepared, edit)
+    await deliverPrepared(ctx, link, prepared, chatId, edit, formMap)
   } catch (error) {
     await edit(
       `I could not prepare that application: ${
@@ -321,13 +420,66 @@ async function runIntake(
   }
 }
 
+/**
+ * Reads the application form when there is one, so review shows the field
+ * mapping. Never throws: without a mapping the review simply says so.
+ */
+async function mapForm(
+  link: TelegramLinkDoc,
+  prepared: PreparedApplication,
+  edit: (message: string) => Promise<void>,
+): Promise<FormMap | null> {
+  const form = prepared.application.form
+  if (!form?.supported || form.appliedAt) return null
+  const quota = consumeRateLimit(`telegram-formmap:${link.userId}`, 3, 60_000)
+  if (!quota.allowed) return null
+  try {
+    await edit('Reading the application form…')
+    return await mapApplicationForm(readConfig(), {
+      userId: link.userId,
+      url: form.url,
+    })
+  } catch {
+    return null
+  }
+}
+
 async function deliverPrepared(
   ctx: Context,
   link: TelegramLinkDoc,
   prepared: PreparedApplication,
   chatId: string,
   edit: (message: string) => Promise<void>,
+  formMap: FormMap | null = null,
 ) {
+  const form = prepared.application.form
+  if (form?.supported && !form.appliedAt) {
+    const needs = (formMap?.fields ?? []).filter((field) => field.needsYou)
+    if (link.autoApply && formMap && needs.length === 0) {
+      await edit('Ready. Filling the form automatically…')
+      await applyPrepared(ctx, link, prepared.application.id, undefined, chatId)
+      return
+    }
+    if (link.autoApply) {
+      await saveTelegramSession(chatId, link.userId, {
+        activeApplicationId: prepared.application.id,
+        state: 'awaiting_approval',
+        pendingEmail: null,
+      })
+      const reason = !formMap
+        ? 'I could not read the form fields.'
+        : `The form still needs ${needs.map((field) => field.label || field.kind).slice(0, 4).join(', ')}.`
+      await edit('Application ready for review.')
+      await ctx.reply(`${reason} I will wait for your go-ahead.`, {
+        reply_markup: reviewKeyboard(link.userId, prepared.application),
+      })
+    } else {
+      await edit('Application ready for review.')
+    }
+    await sendPreview(ctx, link, prepared, chatId, formMap)
+    return
+  }
+
   if (link.autoApply) {
     const recipient =
       prepared.recipient || prepared.application.emailDraft?.to.trim()
@@ -389,7 +541,8 @@ async function runLinkIntake(
       applicantName: user.name,
       onProgress: edit,
     })
-    await deliverPrepared(ctx, link, prepared, chatId, edit)
+    const formMap = await mapForm(link, prepared, edit)
+    await deliverPrepared(ctx, link, prepared, chatId, edit, formMap)
   } catch (error) {
     if (error instanceof LinkNotPostingError) {
       const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`

@@ -63,6 +63,45 @@ export async function telegramChatInfo(chatId: string) {
   }>('getChat', { chat_id: chatId })
 }
 
+export async function sendTelegramPhoto(
+  chatId: string,
+  photo: Uint8Array,
+  caption?: string,
+) {
+  const form = new FormData()
+  form.set('chat_id', chatId)
+  form.set(
+    'photo',
+    new Blob([Buffer.from(photo).buffer as ArrayBuffer], { type: 'image/png' }),
+    'form.png',
+  )
+  if (caption) form.set('caption', caption.slice(0, 1_024))
+
+  let response: Response
+  try {
+    response = await fetch(`${API_ROOT}/bot${telegramToken()}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch {
+    throw new TelegramApiError('Telegram could not be reached.', 502)
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean
+    result?: { message_id: number }
+    description?: string
+  } | null
+  if (!payload?.ok) {
+    throw new TelegramApiError(
+      payload?.description || `Telegram returned ${response.status}.`,
+      502,
+    )
+  }
+  return payload.result as { message_id: number }
+}
+
 export async function downloadTelegramFile(fileId: string) {
   const file = await call<{ file_path?: string; file_size?: number }>('getFile', {
     file_id: fileId,

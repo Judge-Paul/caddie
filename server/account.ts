@@ -233,26 +233,25 @@ export async function markFormApplied(userId: string, id: string): Promise<Appli
 export async function saveApplicationSource(
   userId: string,
   id: string,
-  source: { sourceUrl: string; form: Omit<StoredApplicationForm, 'appliedAt'> | null },
+  source: { sourceUrl?: string | null; form: Omit<StoredApplicationForm, 'appliedAt'> | null },
 ): Promise<ApplicationDetail> {
   await getApplication(userId, id)
   const store = requireMongo()
+  const set: Record<string, unknown> = {
+    form: source.form
+      ? {
+          url: source.form.url,
+          ats: source.form.ats as AtsKind,
+          supported: source.form.supported,
+          appliedAt: null,
+        }
+      : null,
+    updatedAt: new Date(),
+  }
+  if (source.sourceUrl !== undefined) set.sourceUrl = source.sourceUrl
   await store.db.collection<ApplicationDoc>('applications').updateOne(
     { _id: objectId(id), userId },
-    {
-      $set: {
-        sourceUrl: source.sourceUrl,
-        form: source.form
-          ? {
-              url: source.form.url,
-              ats: source.form.ats as AtsKind,
-              supported: source.form.supported,
-              appliedAt: null,
-            }
-          : null,
-        updatedAt: new Date(),
-      },
-    },
+    { $set: set },
   )
   return getApplication(userId, id)
 }

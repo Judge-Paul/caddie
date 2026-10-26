@@ -229,7 +229,8 @@ entrance animations on load, no bouncing.
   through `server/link-intake.ts` and validated like a paste — is processed by
   `server/application-pipeline.ts`: create application, validate and classify,
   optional company research, coverage, automatic line-neutral CV tailoring from
-  approved evidence, cover letter, email draft, and email-recipient detection.
+  approved evidence, cover letter, email draft, email-recipient detection, and
+  form-URL detection with the URL stored on the application for the fill step.
   A form URL found in the text (or the pasted page itself) is stored on the
   application for the fill step.
   The bot shows a coverage summary and signed CV/cover links. Review is the

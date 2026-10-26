@@ -1,4 +1,5 @@
 import { findApplicationEmail } from '../shared/application-email'
+import { findApplicationUrl } from '../shared/application-form'
 import type { ApplicationDetail } from '../shared/account'
 import type { CvStory, FitGap } from '../shared/cv-fit'
 import type { CompanyProfile } from '../shared/jd-classification'
@@ -10,6 +11,7 @@ import {
   getApplicationFile,
   listStories,
   saveApplicationCv,
+  saveApplicationSource,
   updateApplication,
 } from './account'
 import { classifyJd } from './classify'
@@ -150,6 +152,13 @@ export async function prepareApplication(
   const classification = await classifyJd(jd, 'gemma')
   application = await updateApplication(userId, application.id, { classification })
   const data = classification.data
+
+  const form = findApplicationUrl(jd, data.company.name)
+  if (form) {
+    application = await saveApplicationSource(userId, application.id, {
+      form: { url: form.url, ats: form.ats, supported: form.supported },
+    })
+  }
 
   let research: CompanyProfile | null = null
   if (data.company.name) {
